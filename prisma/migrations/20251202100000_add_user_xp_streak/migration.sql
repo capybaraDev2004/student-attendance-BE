@@ -1,0 +1,6 @@
+-- Add XP and streak fields to users
+ALTER TABLE "users"
+  ADD COLUMN IF NOT EXISTS "xp" INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS "streak_days" INTEGER NOT NULL DEFAULT 0;
+
+

@@ -1,0 +1,195 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model vocabulary_categories {
+  id           Int          @id @default(autoincrement())
+  name_vi      String?
+  name_en      String?
+  vocabularies vocabulary[]
+
+  @@map("vocabulary_categories")
+}
+
+model sentence_categories {
+  id        Int         @id @default(autoincrement())
+  name_vi   String?
+  name_en   String?
+  sentences sentences[]
+
+  @@map("sentence_categories")
+}
+
+model sentences {
+  id                 Int                 @id @default(autoincrement())
+  chinese_simplified String?
+  pinyin             String?
+  vietnamese         String?
+  category_id        Int
+  category           sentence_categories @relation(fields: [category_id], references: [id])
+
+  @@map("sentences")
+}
+
+model users {
+  user_id                      Int                       @id @default(autoincrement())
+  username                     String                    @unique
+  email                        String                    @unique
+  password_hash                String
+  created_at                   DateTime                  @default(now())
+  role                         Role                      @default(customer)
+  email_confirmed              Boolean                   @default(false)
+  verification_code            String?
+  verification_code_expires_at DateTime?
+  account_status               AccountStatus             @default(normal)
+  account_type                 AccountType               @default(local)
+  must_set_password            Boolean                   @default(false)
+  reset_code                   String?
+  reset_code_expires_at        DateTime?
+  image_url                    String?
+  address                      String?
+  province                     String?
+  region                       Region?
+  xp                           Int                       @default(0)
+  streak_days                  Int                       @default(0)
+  daily_tasks                  daily_tasks[]
+  daily_scores                 user_daily_scores[]
+  monthly_scores               user_monthly_scores[]
+  vocabulary_boxes             vocabulary_box?
+
+  @@map("users")
+}
+
+model vocabulary {
+  vocab_id     Int                    @id @default(autoincrement())
+  chinese_word String
+  pinyin       String
+  meaning_vn   String
+  audio_url    String?
+  category_id  Int?
+  category     vocabulary_categories? @relation(fields: [category_id], references: [id])
+  box_items    vocabulary_box_item[]
+
+  @@map("vocabulary")
+}
+
+model vocabulary_box {
+  box_id     Int                   @id @default(autoincrement())
+  user_id    Int                   @unique
+  created_at DateTime              @default(now())
+  updated_at DateTime              @updatedAt
+  user       users                 @relation(fields: [user_id], references: [user_id])
+  items      vocabulary_box_item[]
+
+  @@map("vocabulary_box")
+}
+
+model vocabulary_box_item {
+  item_id         Int            @id @default(autoincrement())
+  box_id          Int
+  vocab_id        Int
+  is_read         Boolean        @default(false)
+  is_memorized    Boolean        @default(false)
+  correct_count   Int            @default(0)
+  incorrect_count Int            @default(0)
+  listen_count    Int            @default(0)
+  created_at      DateTime       @default(now())
+  updated_at      DateTime       @updatedAt
+  box             vocabulary_box @relation(fields: [box_id], references: [box_id], onDelete: Cascade)
+  vocab           vocabulary     @relation(fields: [vocab_id], references: [vocab_id])
+
+  @@unique([box_id, vocab_id])
+  @@map("vocabulary_box_item")
+}
+
+model flashcards {
+  id         Int      @id @default(autoincrement())
+  image_url  String?
+  answer     String
+  status     String   @default("active")
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now()) @updatedAt
+
+  @@map("flashcards")
+}
+
+model user_monthly_scores {
+  id          Int      @id @default(autoincrement())
+  user_id     Int
+  score       Int      @default(0)
+  month_cycle String
+  created_at  DateTime @default(now())
+  updated_at  DateTime @default(now()) @updatedAt
+  user        users    @relation(fields: [user_id], references: [user_id], onDelete: Cascade)
+
+  @@unique([user_id, month_cycle])
+  @@map("user_monthly_scores")
+}
+
+model user_daily_scores {
+  id         Int      @id @default(autoincrement())
+  user_id    Int
+  score      Int      @default(0)
+  score_date DateTime @db.Date
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now()) @updatedAt
+  user       users    @relation(fields: [user_id], references: [user_id], onDelete: Cascade)
+
+  @@unique([user_id, score_date])
+  @@map("user_daily_scores")
+}
+
+model daily_tasks {
+  id                Int      @id @default(autoincrement())
+  user_id           Int
+  vocabulary_count  Int      @default(0)
+  sentence_count    Int      @default(0)
+  contest_completed Boolean  @default(false)
+  points_awarded    Int      @default(10)
+  points_given      Boolean  @default(false)
+  date              DateTime @default(dbgenerated("CURRENT_DATE")) @db.Date
+  created_at        DateTime @default(now())
+  updated_at        DateTime @default(now()) @updatedAt
+  user              users    @relation(fields: [user_id], references: [user_id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([user_id, date])
+  @@map("daily_tasks")
+}
+
+model news {
+  id          Int      @id @default(autoincrement())
+  title       String
+  content     String   @db.Text
+  start_date  DateTime @db.Date
+  end_date    DateTime @db.Date
+  created_at  DateTime @default(now())
+  updated_at  DateTime @default(now()) @updatedAt
+
+  @@map("news")
+}
+
+enum Role {
+  admin
+  customer
+}
+
+enum AccountStatus {
+  normal
+  vip
+}
+
+enum AccountType {
+  local
+  google
+}
+
+enum Region {
+  bac
+  trung
+  nam
+}

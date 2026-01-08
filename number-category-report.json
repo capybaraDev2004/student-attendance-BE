@@ -1,0 +1,192 @@
+{
+  "categories": [
+    {
+      "id": 700,
+      "name_vi": "Con người & quan hệ xã hội"
+    },
+    {
+      "id": 701,
+      "name_vi": "Nghề nghiệp & công việc"
+    },
+    {
+      "id": 702,
+      "name_vi": "Sức khỏe & cơ thể"
+    },
+    {
+      "id": 703,
+      "name_vi": "Động vật & thực vật"
+    },
+    {
+      "id": 704,
+      "name_vi": "Món ăn & đồ uống"
+    },
+    {
+      "id": 705,
+      "name_vi": "Đồ dùng & quần áo"
+    },
+    {
+      "id": 706,
+      "name_vi": "Phương tiện & giao thông"
+    },
+    {
+      "id": 707,
+      "name_vi": "Địa điểm & môi trường"
+    },
+    {
+      "id": 708,
+      "name_vi": "Thời gian & thời tiết"
+    },
+    {
+      "id": 709,
+      "name_vi": "Giải trí & sở thích"
+    },
+    {
+      "id": 710,
+      "name_vi": "Trường học & học tập"
+    },
+    {
+      "id": 711,
+      "name_vi": "Ngôn ngữ & giao tiếp"
+    },
+    {
+      "id": 712,
+      "name_vi": "Tính từ & đặc điểm"
+    },
+    {
+      "id": 713,
+      "name_vi": "Từ loại đặc biệt & trợ từ"
+    },
+    {
+      "id": 714,
+      "name_vi": "Văn hóa – thói quen – lễ nghi"
+    },
+    {
+      "id": 715,
+      "name_vi": "Mua sắm & giao dịch"
+    },
+    {
+      "id": 716,
+      "name_vi": "Công việc, kinh doanh"
+    },
+    {
+      "id": 717,
+      "name_vi": "Hoạt động thường ngày"
+    },
+    {
+      "id": 718,
+      "name_vi": "Động từ"
+    },
+    {
+      "id": 719,
+      "name_vi": "Số đếm & số lượng"
+    }
+  ],
+  "numberCategory": {
+    "id": 719,
+    "name_vi": "Số đếm & số lượng",
+    "name_en": "Numbers"
+  },
+  "count": 111,
+  "samples": [
+    {
+      "vocab_id": 116737,
+      "chinese_word": "安详",
+      "meaning_vn": "êm đềm"
+    },
+    {
+      "vocab_id": 116760,
+      "chinese_word": "百分点",
+      "meaning_vn": "điểm phần trăm"
+    },
+    {
+      "vocab_id": 116831,
+      "chinese_word": "宝石",
+      "meaning_vn": "đá quý"
+    },
+    {
+      "vocab_id": 116852,
+      "chinese_word": "北极",
+      "meaning_vn": "bắc cực"
+    },
+    {
+      "vocab_id": 116854,
+      "chinese_word": "北京",
+      "meaning_vn": "Bắc Kinh"
+    },
+    {
+      "vocab_id": 116882,
+      "chinese_word": "遍",
+      "meaning_vn": "lần, khắp"
+    },
+    {
+      "vocab_id": 116921,
+      "chinese_word": "表态",
+      "meaning_vn": "bày tỏ thái độ"
+    },
+    {
+      "vocab_id": 116934,
+      "chinese_word": "别",
+      "meaning_vn": "khác, chia lìa"
+    },
+    {
+      "vocab_id": 116944,
+      "chinese_word": "比例",
+      "meaning_vn": "tỷ lệ"
+    },
+    {
+      "vocab_id": 116946,
+      "chinese_word": "丙",
+      "meaning_vn": "thứ ba, Bính"
+    },
+    {
+      "vocab_id": 116957,
+      "chinese_word": "冰激凌",
+      "meaning_vn": "kem"
+    },
+    {
+      "vocab_id": 116966,
+      "chinese_word": "必须",
+      "meaning_vn": "phải, cần phải"
+    },
+    {
+      "vocab_id": 116979,
+      "chinese_word": "伯母",
+      "meaning_vn": "bác gái"
+    },
+    {
+      "vocab_id": 117008,
+      "chinese_word": "不得已",
+      "meaning_vn": "bất đắc dĩ, bất đắc phải"
+    },
+    {
+      "vocab_id": 117201,
+      "chinese_word": "陈列",
+      "meaning_vn": "trưng bày"
+    },
+    {
+      "vocab_id": 117203,
+      "chinese_word": "沉默",
+      "meaning_vn": "im lặng"
+    },
+    {
+      "vocab_id": 117284,
+      "chinese_word": "传真",
+      "meaning_vn": "fax"
+    },
+    {
+      "vocab_id": 117285,
+      "chinese_word": "储备",
+      "meaning_vn": "dự trữ, để dành"
+    },
+    {
+      "vocab_id": 117288,
+      "chinese_word": "储存",
+      "meaning_vn": "dự trữ, để dành"
+    },
+    {
+      "vocab_id": 117291,
+      "chinese_word": "除非",
+      "meaning_vn": "trừ phi"
+    }
+  ]
+}
