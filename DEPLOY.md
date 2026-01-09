@@ -95,32 +95,42 @@ Render sẽ tự động detect file `render.yaml` nếu có, hoặc bạn có t
 
 **Lưu ý:** File `render.yaml` đã được tạo sẵn trong project, Render sẽ tự động sử dụng nó.
 
-### Bước 3: Thêm Environment Variables
+### Bước 3: Thêm Environment Variables (BẮT BUỘC TRƯỚC KHI DEPLOY)
+
+⚠️ **QUAN TRỌNG:** App sẽ **CRASH** nếu thiếu các biến bắt buộc. Phải thêm **TRƯỚC KHI DEPLOY** hoặc ngay sau khi deploy lần đầu.
 
 Trong Render Dashboard → Environment, thêm các biến sau:
 
+#### Biến BẮT BUỘC (phải có):
 ```bash
 # Database (sẽ được set tự động nếu dùng Render PostgreSQL)
+# Nếu chưa có database, tạo PostgreSQL service trước
 DATABASE_URL=postgresql://user:password@host:port/database?schema=public
 
-# JWT Secrets (tạo bằng: openssl rand -base64 64)
-JWT_ACCESS_SECRET=your-access-secret-here
-JWT_REFRESH_SECRET=your-refresh-secret-here
+# JWT Secrets - BẮT BUỘC (app sẽ crash nếu thiếu)
+# Tạo bằng: node -e "console.log(require('crypto').randomBytes(64).toString('base64'))"
+JWT_ACCESS_SECRET=<tạo-secret-ngẫu-nhiên-64-bytes-base64>
+JWT_REFRESH_SECRET=<tạo-secret-ngẫu-nhiên-64-bytes-base64>
+```
 
+#### Biến KHUYẾN NGHỊ:
+```bash
 # Frontend URL (cho CORS) - thêm tất cả các domain có thể
 FRONTEND_URL=https://your-app.vercel.app,https://your-app-git-main.vercel.app
 
-# Server Configuration
+# Server Configuration (đã có trong render.yaml, nhưng có thể override)
 PORT=10000
 HOST=0.0.0.0
 NODE_ENV=production
 
-# Azure Speech (nếu dùng)
+# Azure Speech (chỉ cần nếu dùng tính năng speech)
 AZURE_SPEECH_KEY=your-azure-key
 AZURE_SPEECH_REGION=your-azure-region
 ```
 
-**Quan trọng:** Render sử dụng port `10000` mặc định, đảm bảo code đọc từ `process.env.PORT`.
+**Lưu ý:** 
+- Render sử dụng port `10000` mặc định, đảm bảo code đọc từ `process.env.PORT` (đã có trong code)
+- `NODE_ENV`, `PORT`, `HOST` đã được set trong `render.yaml`, nhưng có thể override nếu cần
 
 ### Bước 4: Tạo Database
 
@@ -207,6 +217,40 @@ curl -X POST https://your-api.railway.app/auth/login \
 ---
 
 ## 🔍 Troubleshooting
+
+### Lỗi: "There's an error above. Please fix it to continue."
+**Đây là lỗi chung của Render, thường do:**
+
+1. **Thiếu Environment Variables BẮT BUỘC:**
+   - App sử dụng `getOrThrow` cho `JWT_ACCESS_SECRET` và `JWT_REFRESH_SECRET`
+   - Nếu thiếu, app sẽ crash ngay khi start
+   - **Giải pháp:** 
+     - Vào Render Dashboard → Environment
+     - Thêm `JWT_ACCESS_SECRET` và `JWT_REFRESH_SECRET`
+     - Tạo secrets bằng: `node -e "console.log(require('crypto').randomBytes(64).toString('base64'))"`
+     - Restart service sau khi thêm
+
+2. **Thiếu DATABASE_URL:**
+   - Prisma cần `DATABASE_URL` để generate client
+   - **Giải pháp:** Tạo PostgreSQL service trên Render hoặc thêm `DATABASE_URL` từ external database
+
+3. **render.yaml có lỗi:**
+   - Kiểm tra YAML syntax (indentation phải là spaces, không phải tabs)
+   - File đã được fix với `nodeVersion: 22`
+   - Đảm bảo file nằm ở root của thư mục `server`
+
+4. **Build failed:**
+   - Xem build logs trong Render Dashboard để biết lỗi cụ thể
+   - Đảm bảo `npm install && npm run build` chạy thành công
+   - File `dist/src/main.js` phải tồn tại sau khi build
+
+**Checklist để fix:**
+- [ ] Đã thêm `JWT_ACCESS_SECRET` vào Environment Variables
+- [ ] Đã thêm `JWT_REFRESH_SECRET` vào Environment Variables  
+- [ ] Đã có `DATABASE_URL` (từ Render PostgreSQL hoặc external)
+- [ ] Build command chạy thành công (check logs)
+- [ ] File `render.yaml` có syntax đúng (đã được fix)
+- [ ] Root Directory trong Render được set đúng là `server` (nếu repo có nhiều thư mục)
 
 ### Lỗi: "Cannot find module '/opt/render/project/src/dist/main'"
 **Đã fix:** File `package.json` đã được cập nhật với:

@@ -2,6 +2,7 @@ services:
   - type: web
     name: learning-chinese-server
     env: node
+    nodeVersion: 22
     buildCommand: npm install && npm run build
     startCommand: npm run start:prod
     envVars:
