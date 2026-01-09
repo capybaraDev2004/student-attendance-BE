@@ -79,21 +79,30 @@ async function bootstrap() {
   const host = process.env.HOST || '0.0.0.0';
   await app.listen(port, host);
   
-  // Lấy IP LAN để hiển thị
-  const networkInterfaces = os.networkInterfaces();
-  let lanIp = 'localhost';
-  for (const interfaceName in networkInterfaces) {
-    for (const iface of networkInterfaces[interfaceName] || []) {
-      if (iface.family === 'IPv4' && !iface.internal && iface.address.startsWith('192.168.')) {
-        lanIp = iface.address;
-        break;
+  // Hiển thị thông tin server
+  if (process.env.NODE_ENV === 'production') {
+    // Production: hiển thị port và host từ env
+    console.log(`🚀 Backend NestJS đang chạy tại:`);
+    console.log(`   - Host: ${host}`);
+    console.log(`   - Port: ${port}`);
+    console.log(`   - Environment: ${process.env.NODE_ENV || 'development'}`);
+  } else {
+    // Development: hiển thị IP LAN
+    const networkInterfaces = os.networkInterfaces();
+    let lanIp = 'localhost';
+    for (const interfaceName in networkInterfaces) {
+      for (const iface of networkInterfaces[interfaceName] || []) {
+        if (iface.family === 'IPv4' && !iface.internal && iface.address.startsWith('192.168.')) {
+          lanIp = iface.address;
+          break;
+        }
       }
+      if (lanIp !== 'localhost') break;
     }
-    if (lanIp !== 'localhost') break;
+    
+    console.log(`🚀 Backend NestJS đang chạy tại:`);
+    console.log(`   - Local:   http://localhost:${port}`);
+    console.log(`   - Network: http://${lanIp}:${port}`);
   }
-  
-  console.log(`🚀 Backend NestJS đang chạy tại:`);
-  console.log(`   - Local:   http://localhost:${port}`);
-  console.log(`   - Network: http://${lanIp}:${port}`);
 }
 bootstrap();
