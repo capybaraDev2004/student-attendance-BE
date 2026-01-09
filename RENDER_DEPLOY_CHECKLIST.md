@@ -72,9 +72,43 @@ Vào Web Service → Environment, thêm:
 - ✅ Đảm bảo `HOST=0.0.0.0` (không phải `localhost`)
 - ✅ Kiểm tra app có start thành công không (xem runtime logs)
 
-### "Cannot connect to database"
+### "Authentication failed" hoặc "database credentials are not valid"
+**Lỗi:** `Authentication failed against database server, the provided database credentials for 'postgres' are not valid.`
+
+**Cách fix:**
+1. ✅ Vào Supabase Dashboard → Settings → Database
+2. ✅ Click "Reset database password" hoặc "Reset your database password"
+3. ✅ Tạo password mới và lưu lại
+4. ✅ Copy connection string mới (với password mới)
+5. ✅ Vào Render Dashboard → Environment Variables
+6. ✅ Cập nhật `DATABASE_URL` với connection string mới
+7. ✅ Đảm bảo format đúng: `postgresql://postgres:[PASSWORD]@[HOST]:[PORT]/postgres?pgbouncer=true`
+8. ✅ Save và redeploy
+
+**Kiểm tra:**
+- Password trong URL phải đúng (vừa reset)
+- Connection string không bị cắt
+- Nếu dùng pooler, có `?pgbouncer=true` ở cuối
+
+### "Cannot connect to database" hoặc "Can't reach database server"
+**Nếu dùng Supabase:**
+- ✅ Kiểm tra database có bị pause không (Supabase free tier tự pause sau 1 tuần)
+- ✅ Dùng **Transaction pooler** hoặc **Session pooler** (port 6543) thay vì direct connection (port 5432)
+- ✅ Lấy từ Supabase Dashboard → Settings → Database → "Connect to your project"
+- ✅ Chọn tab "Connection String" hoặc "ORMs" → "Prisma"
+- ✅ Copy **Connection URI** (format `postgresql://...`, KHÔNG phải `psql` command)
+- ✅ Format: `postgresql://postgres.[ref]:[password]@aws-0-[region].pooler.supabase.com:6543/postgres?pgbouncer=true`
+- ✅ **Lưu ý:** Transaction pooler không support PREPARE statements, nếu Prisma lỗi thì thử Session pooler
+
+**Nếu dùng Render PostgreSQL:**
 - ✅ Kiểm tra `DATABASE_URL` đúng format
-- ✅ Đảm bảo PostgreSQL service đã được start
+- ✅ Đảm bảo PostgreSQL service đã được start trong Render
+- ✅ Copy `DATABASE_URL` từ PostgreSQL service và thêm vào Web Service Environment Variables
+
+**Kiểm tra chung:**
+- ✅ `DATABASE_URL` có được set trong Environment Variables
+- ✅ Format đúng: `postgresql://user:password@host:port/database?schema=public`
+- ✅ Test connection bằng cách chạy: `npx prisma db pull` (trong Render Shell)
 
 ## 📝 Sau khi deploy thành công:
 

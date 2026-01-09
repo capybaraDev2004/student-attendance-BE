@@ -90,7 +90,7 @@ npm install && npm run build && npx prisma migrate deploy
 
 1. Vào Web Service → Settings
 2. Cấu hình như sau:
-   - **Build Command:** `npm install && npm run build`
+   - **Build Command:** `npm install --include=dev && npm run build` (quan trọng: phải có `--include=dev` để install devDependencies)
    - **Start Command:** `npm start` (hoặc `npm run start:prod`)
    - **Environment:** `Node`
    - **Node Version:** `22`
@@ -268,11 +268,98 @@ curl -X POST https://your-api.railway.app/auth/login \
 - Kiểm tra file `dist/main.js` có tồn tại sau khi build
 - Render sẽ tự động detect `render.yaml` nếu có
 
-### Lỗi: "Cannot connect to database"
-- Kiểm tra `DATABASE_URL` format đúng
-- Kiểm tra database có cho phép connections từ Render IPs
-- Nếu dùng external DB, whitelist Render IPs
-- Đảm bảo database service đã được start trong Render
+### Lỗi: "Authentication failed" hoặc "database credentials are not valid"
+**Lỗi cụ thể:** `PrismaClientInitializationError: Authentication failed against database server, the provided database credentials for 'postgres' are not valid.`
+
+**Nguyên nhân:**
+- Password trong `DATABASE_URL` không đúng
+- Password đã bị thay đổi nhưng `DATABASE_URL` chưa được cập nhật
+- Connection string format không đúng
+
+**Cách fix:**
+
+1. **Reset password trong Supabase:**
+   - Vào Supabase Dashboard → Settings → Database
+   - Click "Reset database password" hoặc "Reset your database password"
+   - Tạo password mới (lưu lại an toàn)
+   - Copy connection string mới với password mới
+
+2. **Cập nhật DATABASE_URL trong Render:**
+   - Vào Render Dashboard → Web Service → Environment
+   - Tìm `DATABASE_URL`
+   - Thay thế bằng connection string mới (có password mới)
+   - Format đúng: `postgresql://postgres:[PASSWORD]@[HOST]:[PORT]/postgres?[OPTIONS]`
+   - **Lưu ý:** Nếu dùng Transaction pooler, đảm bảo URL có `?pgbouncer=true`
+
+3. **Kiểm tra connection string format:**
+   ```
+   postgresql://postgres:[PASSWORD]@db.xxx.supabase.co:6543/postgres?pgbouncer=true
+   ```
+   - `[PASSWORD]` phải là password mới vừa reset
+   - Port `6543` cho Transaction pooler, `5432` cho Direct connection
+   - `?pgbouncer=true` bắt buộc nếu dùng pooler
+
+4. **Save và redeploy:**
+   - Save Environment Variables
+   - Render sẽ tự động redeploy hoặc click "Manual Deploy"
+
+**Lưu ý quan trọng:**
+- Password trong connection string phải được URL-encode nếu có ký tự đặc biệt
+- Không có khoảng trắng trong password
+- Đảm bảo copy đầy đủ connection string (không bị cắt)
+
+### Lỗi: "Cannot connect to database" hoặc "Can't reach database server"
+**Lỗi cụ thể:** `PrismaClientInitializationError: Can't reach database server at ...`
+
+**Nguyên nhân thường gặp:**
+
+1. **DATABASE_URL không đúng format hoặc thiếu:**
+   - Kiểm tra `DATABASE_URL` có được set trong Environment Variables
+   - Format đúng: `postgresql://user:password@host:port/database?schema=public`
+
+2. **Supabase Database không accessible từ Render:**
+   - Supabase có thể chặn connections từ external IPs
+   - Free tier có thể bị pause sau khi không dùng
+   - Cần kiểm tra Supabase Dashboard → Settings → Database
+
+3. **Cần dùng Connection Pooling URL (nếu dùng Supabase):**
+   - Supabase có 2 loại connection string:
+     - **Direct connection:** `postgresql://...@db.xxx.supabase.co:5432/...`
+     - **Connection pooling:** `postgresql://...@db.xxx.supabase.co:6543/...` (port 6543)
+   - **Giải pháp:** Dùng connection pooling URL (port 6543) thay vì direct connection (port 5432)
+   - Lấy từ Supabase Dashboard → Settings → Database → Connection Pooling
+
+4. **Database bị pause (Supabase Free tier):**
+   - Supabase free tier tự động pause database sau 1 tuần không dùng
+   - **Giải pháp:** Vào Supabase Dashboard và resume database
+
+5. **Firewall/Network issues:**
+   - Kiểm tra Supabase có cho phép connections từ external IPs
+   - Có thể cần whitelist Render IPs (nhưng Supabase thường cho phép tất cả)
+
+**Cách fix:**
+
+**Option 1: Dùng Connection Pooling URL (Khuyến nghị cho Supabase)**
+1. Vào Supabase Dashboard → Settings → Database → "Connect to your project"
+2. Chọn tab **"Connection String"** hoặc **"ORMs"** → **"Prisma"**
+3. Chọn **Method: Transaction pooler** (hoặc Session pooler nếu Transaction không work)
+4. Copy **Connection URI** (format `postgresql://...`, KHÔNG phải `psql` command)
+5. Format đúng: `postgresql://postgres.[project-ref]:[password]@aws-0-[region].pooler.supabase.com:6543/postgres?pgbouncer=true`
+6. Thay thế `DATABASE_URL` trong Render Environment Variables với URI này
+7. **Lưu ý:** Transaction pooler không support PREPARE statements, nếu Prisma lỗi thì thử Session pooler
+
+**Option 2: Tạo PostgreSQL trên Render (Đơn giản hơn)**
+1. Trong Render Dashboard, tạo PostgreSQL service mới
+2. Render sẽ tự động set `DATABASE_URL`
+3. Copy `DATABASE_URL` và thêm vào Web Service Environment Variables
+4. Chạy migrations: `npx prisma migrate deploy`
+
+**Option 3: Kiểm tra và Resume Supabase Database**
+1. Vào Supabase Dashboard
+2. Kiểm tra database có bị pause không
+3. Nếu pause, click Resume
+4. Đợi vài phút để database start
+5. Redeploy trên Render
 
 ### Lỗi: "Prisma Client not generated"
 **Đã fix:** Script `postinstall` đã được thêm vào `package.json` để tự động generate Prisma Client sau khi `npm install`.
@@ -316,10 +403,28 @@ npx prisma generate
 - Kiểm tra app có start thành công không (xem runtime logs)
 - Nếu app crash ngay khi start, xem logs để tìm lỗi (thường là thiếu env variables)
 
+### Lỗi: "nest: not found" hoặc "Build failed"
+**Lỗi cụ thể:** `sh: 1: nest: not found`
+
+**Nguyên nhân:**
+- `@nestjs/cli` nằm trong `devDependencies` và không được install trong production
+- Render có thể skip devDependencies khi `NODE_ENV=production`
+
+**Đã fix:**
+- Build script đã được sửa: `npx nest build` thay vì `nest build`
+- Build command trong `render.yaml` đã được sửa: `npm install --include=dev && npm run build`
+
+**Cách fix thủ công:**
+1. Vào Render Dashboard → Web Service → Settings
+2. Đảm bảo **Build Command** là: `npm install --include=dev && npm run build`
+3. **Quan trọng:** Phải có `--include=dev` để install devDependencies (bao gồm `@nestjs/cli`)
+4. Save và redeploy
+
 ### Lỗi: "Build failed" hoặc "Module not found"
 - Kiểm tra tất cả dependencies đã được install
 - Đảm bảo `node_modules` không bị ignore trong `.gitignore`
 - Kiểm tra Node version trong Render (khuyến nghị: Node 22)
+- Đảm bảo build command có `--include=dev` để install devDependencies
 
 ### Lỗi: "Migrations failed"
 - Chạy migrations thủ công qua Render Shell: `npx prisma migrate deploy`
