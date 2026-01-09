@@ -90,7 +90,8 @@ npm install && npm run build && npx prisma migrate deploy
 
 1. Vào Web Service → Settings
 2. Cấu hình như sau:
-   - **Build Command:** `npm install --include=dev && npm run build` (quan trọng: phải có `--include=dev` để install devDependencies)
+   - **Build Command:** `npm install && npm run build` 
+   - **Lưu ý:** Script `build` trong `package.json` đã tự động install devDependencies, nên không cần `--include=dev` trong build command
    - **Start Command:** `npm start` (hoặc `npm run start:prod`)
    - **Environment:** `Node`
    - **Node Version:** `22`
@@ -403,28 +404,29 @@ npx prisma generate
 - Kiểm tra app có start thành công không (xem runtime logs)
 - Nếu app crash ngay khi start, xem logs để tìm lỗi (thường là thiếu env variables)
 
-### Lỗi: "nest: not found" hoặc "Build failed"
-**Lỗi cụ thể:** `sh: 1: nest: not found`
+### Lỗi: "nest: not found" hoặc "could not determine executable to run"
+**Lỗi cụ thể:** `sh: 1: nest: not found` hoặc `npm error could not determine executable to run`
 
 **Nguyên nhân:**
 - `@nestjs/cli` nằm trong `devDependencies` và không được install trong production
 - Render có thể skip devDependencies khi `NODE_ENV=production`
 
 **Đã fix:**
-- Build script đã được sửa: `npx nest build` thay vì `nest build`
-- Build command trong `render.yaml` đã được sửa: `npm install --include=dev && npm run build`
+- Build script đã được sửa: tự động install devDependencies trước khi build
+- Build script: `prisma generate && npm install --include=dev && node_modules/.bin/nest build`
+- Build command trong `render.yaml`: `npm install && npm run build` (script sẽ tự xử lý devDependencies)
 
 **Cách fix thủ công:**
 1. Vào Render Dashboard → Web Service → Settings
-2. Đảm bảo **Build Command** là: `npm install --include=dev && npm run build`
-3. **Quan trọng:** Phải có `--include=dev` để install devDependencies (bao gồm `@nestjs/cli`)
+2. Đảm bảo **Build Command** là: `npm install && npm run build`
+3. Script `build` trong `package.json` đã tự động install devDependencies, không cần `--include=dev` trong build command
 4. Save và redeploy
 
 ### Lỗi: "Build failed" hoặc "Module not found"
 - Kiểm tra tất cả dependencies đã được install
 - Đảm bảo `node_modules` không bị ignore trong `.gitignore`
 - Kiểm tra Node version trong Render (khuyến nghị: Node 22)
-- Đảm bảo build command có `--include=dev` để install devDependencies
+- Build script đã tự động install devDependencies, không cần thêm `--include=dev` trong build command
 
 ### Lỗi: "Migrations failed"
 - Chạy migrations thủ công qua Render Shell: `npx prisma migrate deploy`
