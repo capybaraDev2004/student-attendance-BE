@@ -86,14 +86,19 @@ npm install && npm run build && npx prisma migrate deploy
 
 ### Bước 2: Cấu hình Build
 
-Render sẽ tự động detect file `render.yaml` nếu có, hoặc bạn có thể cấu hình thủ công:
+⚠️ **QUAN TRỌNG:** Render có thể không tự động đọc `render.yaml`. Phải cấu hình thủ công trong Dashboard:
 
-- **Build Command:** `npm install && npm run build`
-- **Start Command:** `npm run start:prod`
-- **Environment:** `Node`
-- **Node Version:** `22` (hoặc version bạn đang dùng)
+1. Vào Web Service → Settings
+2. Cấu hình như sau:
+   - **Build Command:** `npm install && npm run build`
+   - **Start Command:** `npm start` (hoặc `npm run start:prod`)
+   - **Environment:** `Node`
+   - **Node Version:** `22`
 
-**Lưu ý:** File `render.yaml` đã được tạo sẵn trong project, Render sẽ tự động sử dụng nó.
+**Lưu ý:** 
+- File `render.yaml` đã được tạo sẵn, nhưng nên cấu hình thủ công để đảm bảo
+- Script `start` trong `package.json` đã được set để chạy production mode
+- Nếu gặp lỗi memory, thêm `NODE_OPTIONS=--max-old-space-size=512` vào Environment Variables
 
 ### Bước 3: Thêm Environment Variables (BẮT BUỘC TRƯỚC KHI DEPLOY)
 
@@ -282,6 +287,34 @@ npx prisma generate
 - Render tự động set `PORT=10000` (hoặc port khác)
 - Đảm bảo code đọc từ `process.env.PORT` (đã có trong `main.ts`)
 - Không hardcode port trong code
+
+### Lỗi: "JavaScript heap out of memory" hoặc "Exited with status 134"
+**Nguyên nhân:**
+- Render đang chạy `npm run start` (dev mode) thay vì production mode
+- Dev mode tốn nhiều memory hơn và có thể gây out of memory
+
+**Đã fix:**
+- Script `start` trong `package.json` đã được sửa để chạy production mode: `node dist/src/main.js`
+- Thêm `NODE_OPTIONS=--max-old-space-size=512` vào Environment Variables trong render.yaml
+
+**Cách fix thủ công:**
+1. Vào Render Dashboard → Web Service → Settings
+2. Đảm bảo **Start Command** là: `npm start` hoặc `npm run start:prod`
+3. Vào Environment Variables, thêm:
+   - Key: `NODE_OPTIONS`
+   - Value: `--max-old-space-size=512`
+4. Save và redeploy
+
+### Lỗi: "No open ports detected"
+**Nguyên nhân:**
+- App không start được hoặc không bind đúng port
+- Render không detect được port đang listen
+
+**Cách fix:**
+- Đảm bảo code đọc port từ `process.env.PORT` (đã có trong `main.ts`)
+- Đảm bảo `HOST=0.0.0.0` (không phải `localhost`)
+- Kiểm tra app có start thành công không (xem runtime logs)
+- Nếu app crash ngay khi start, xem logs để tìm lỗi (thường là thiếu env variables)
 
 ### Lỗi: "Build failed" hoặc "Module not found"
 - Kiểm tra tất cả dependencies đã được install

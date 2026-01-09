@@ -29,12 +29,18 @@ Vào Web Service → Environment, thêm:
 - `NODE_ENV` = `production` (đã có trong render.yaml)
 - `PORT` = `10000` (đã có trong render.yaml)
 - `HOST` = `0.0.0.0` (đã có trong render.yaml)
+- `NODE_OPTIONS` = `--max-old-space-size=512` (để tránh out of memory)
 
-### 4. Kiểm tra cấu hình
-- [ ] File `render.yaml` có trong thư mục `server`
-- [ ] Root Directory trong Render được set là `server` (nếu repo có nhiều thư mục)
-- [ ] Build Command: `npm install && npm run build`
-- [ ] Start Command: `npm run start:prod`
+### 4. Kiểm tra cấu hình trong Render Dashboard
+⚠️ **QUAN TRỌNG:** Phải cấu hình thủ công trong Render Dashboard, không chỉ dựa vào `render.yaml`:
+
+1. Vào Web Service → Settings
+2. Kiểm tra:
+   - [ ] Root Directory: `server` (nếu repo có nhiều thư mục)
+   - [ ] Build Command: `npm install && npm run build`
+   - [ ] Start Command: `npm start` (hoặc `npm run start:prod`)
+   - [ ] Environment: `Node`
+   - [ ] Node Version: `22`
 
 ### 5. Deploy và kiểm tra
 1. Deploy service
@@ -55,6 +61,16 @@ Vào Web Service → Environment, thêm:
 ### "Prisma Client not generated"
 - ✅ Đã fix: `postinstall` script tự động generate
 - Nếu vẫn lỗi, chạy: `npx prisma generate` trong Render Shell
+
+### "JavaScript heap out of memory" hoặc "Exited with status 134"
+- ✅ Đảm bảo Start Command là `npm start` (không phải `npm run start` với dev mode)
+- ✅ Thêm `NODE_OPTIONS=--max-old-space-size=512` vào Environment Variables
+- ✅ Kiểm tra script `start` trong package.json chạy production mode
+
+### "No open ports detected"
+- ✅ Đảm bảo app đọc port từ `process.env.PORT` (đã có trong code)
+- ✅ Đảm bảo `HOST=0.0.0.0` (không phải `localhost`)
+- ✅ Kiểm tra app có start thành công không (xem runtime logs)
 
 ### "Cannot connect to database"
 - ✅ Kiểm tra `DATABASE_URL` đúng format

@@ -4,7 +4,7 @@ services:
     env: node
     nodeVersion: 22
     buildCommand: npm install && npm run build
-    startCommand: npm run start:prod
+    startCommand: npm start
     envVars:
       - key: NODE_ENV
         value: production
@@ -12,4 +12,6 @@ services:
         value: 10000
       - key: HOST
         value: 0.0.0.0
+      - key: NODE_OPTIONS
+        value: --max-old-space-size=512
     healthCheckPath: /
