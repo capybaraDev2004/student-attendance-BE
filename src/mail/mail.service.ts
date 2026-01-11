@@ -23,23 +23,50 @@ export class MailService {
     this.fromName = this.configService.get<string>('MAIL_FROM_NAME') ?? 'CapyChina';
 
     // Cấu hình SMTP với timeout và connection settings để tránh timeout trên production
+    // Thử port 465 (SSL) trước, nếu không được thì fallback về 587 (TLS)
+    const useSSL = process.env.MAIL_USE_SSL === 'true';
+    const smtpPort = useSSL ? 465 : 587;
+    
     this.transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
-      port: 587,
-      secure: false, // true cho 465, false cho các port khác
+      port: smtpPort,
+      secure: useSSL, // true cho 465, false cho 587
       auth: user && pass ? { user, pass } : undefined,
       // Tăng timeout để tránh lỗi connection timeout trên Render
-      connectionTimeout: 60000, // 60 seconds
-      greetingTimeout: 30000, // 30 seconds
-      socketTimeout: 60000, // 60 seconds
+      connectionTimeout: 30000, // 30 seconds (giảm từ 60s để fail nhanh hơn)
+      greetingTimeout: 15000, // 15 seconds
+      socketTimeout: 30000, // 30 seconds
       // TLS options
       tls: {
-        // Không từ chối các chứng chỉ không hợp lệ (có thể cần trong một số môi trường)
+        // Cho phép kết nối ngay cả khi certificate có vấn đề (có thể cần trên một số môi trường)
         rejectUnauthorized: true,
       },
       // Debug (chỉ bật trong development)
       debug: process.env.NODE_ENV === 'development',
       logger: process.env.NODE_ENV === 'development',
+    });
+
+    // Verify connection khi khởi tạo (chỉ log, không block)
+    if (user && pass) {
+      this.verifyConnection().catch((error) => {
+        this.logger.warn(
+          `SMTP connection verification failed (will retry on send): ${error instanceof Error ? error.message : String(error)}`,
+        );
+      });
+    }
+  }
+
+  // Gửi email trong background (không block)
+  sendEmailVerificationAsync(
+    to: string,
+    code: string,
+    expiresAt: Date,
+  ): void {
+    // Chạy trong background, không await
+    this.sendEmailVerification(to, code, expiresAt).catch((error) => {
+      this.logger.error(
+        `Background email send failed for ${to}: ${error instanceof Error ? error.message : String(error)}`,
+      );
     });
   }
 
@@ -96,23 +123,51 @@ export class MailService {
       </table>
     `;
 
-    try {
-      await this.transporter.sendMail({
-        to,
-        from: `"${this.fromName}" <${this.fromAddress}>`,
-        subject: 'CapyChina - Xác thực tài khoản',
-        html,
-      });
-      this.logger.log(`✅ Email xác thực đã được gửi thành công đến ${to}`);
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      const errorStack = error instanceof Error ? error.stack : undefined;
-      this.logger.error(
-        `❌ Gửi email xác thực thất bại đến ${to}: ${errorMessage}`,
-        errorStack,
-      );
-      // Không throw error để không làm gián đoạn flow (code đã được save trong DB)
+    // Retry logic: thử gửi tối đa 2 lần
+    let lastError: Error | null = null;
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        await this.transporter.sendMail({
+          to,
+          from: `"${this.fromName}" <${this.fromAddress}>`,
+          subject: 'CapyChina - Xác thực tài khoản',
+          html,
+        });
+        this.logger.log(`✅ Email xác thực đã được gửi thành công đến ${to} (attempt ${attempt})`);
+        return; // Thành công, thoát
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        const errorMessage = lastError.message;
+        
+        if (attempt < 2) {
+          this.logger.warn(
+            `⚠️  Gửi email xác thực thất bại (attempt ${attempt}/2) đến ${to}: ${errorMessage}. Đang thử lại...`,
+          );
+          // Đợi 2 giây trước khi retry
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+        } else {
+          this.logger.error(
+            `❌ Gửi email xác thực thất bại đến ${to} sau ${attempt} lần thử: ${errorMessage}`,
+            lastError.stack,
+          );
+        }
+      }
     }
+    // Không throw error để không làm gián đoạn flow (code đã được save trong DB)
+  }
+
+  // Gửi email reset password trong background (không block)
+  sendPasswordResetAsync(
+    to: string,
+    code: string,
+    expiresAt: Date,
+  ): void {
+    // Chạy trong background, không await
+    this.sendPasswordReset(to, code, expiresAt).catch((error) => {
+      this.logger.error(
+        `Background password reset email send failed for ${to}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    });
   }
 
   async sendPasswordReset(
@@ -161,22 +216,51 @@ export class MailService {
       </table>
     `;
 
+    // Retry logic: thử gửi tối đa 2 lần
+    let lastError: Error | null = null;
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        await this.transporter.sendMail({
+          to,
+          from: `"${this.fromName}" <${this.fromAddress}>`,
+          subject: 'CapyChina - Đặt lại mật khẩu',
+          html,
+        });
+        this.logger.log(`✅ Email đặt lại mật khẩu đã được gửi thành công đến ${to} (attempt ${attempt})`);
+        return; // Thành công, thoát
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        const errorMessage = lastError.message;
+        
+        if (attempt < 2) {
+          this.logger.warn(
+            `⚠️  Gửi email đặt lại mật khẩu thất bại (attempt ${attempt}/2) đến ${to}: ${errorMessage}. Đang thử lại...`,
+          );
+          // Đợi 2 giây trước khi retry
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+        } else {
+          this.logger.error(
+            `❌ Gửi email đặt lại mật khẩu thất bại đến ${to} sau ${attempt} lần thử: ${errorMessage}`,
+            lastError.stack,
+          );
+        }
+      }
+    }
+    // Không throw error để không làm gián đoạn flow (code đã được save trong DB)
+  }
+
+  // Verify SMTP connection
+  private async verifyConnection(): Promise<void> {
+    if (!this.transporter) {
+      throw new Error('Transporter not configured');
+    }
     try {
-      await this.transporter.sendMail({
-        to,
-        from: `"${this.fromName}" <${this.fromAddress}>`,
-        subject: 'CapyChina - Đặt lại mật khẩu',
-        html,
-      });
-      this.logger.log(`✅ Email đặt lại mật khẩu đã được gửi thành công đến ${to}`);
+      await this.transporter.verify();
+      this.logger.log('✅ SMTP connection verified successfully');
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      const errorStack = error instanceof Error ? error.stack : undefined;
-      this.logger.error(
-        `❌ Gửi email đặt lại mật khẩu thất bại đến ${to}: ${errorMessage}`,
-        errorStack,
-      );
-      // Không throw error để không làm gián đoạn flow (code đã được save trong DB)
+      this.logger.warn(`⚠️  SMTP verification failed: ${errorMessage}`);
+      throw error;
     }
   }
 }

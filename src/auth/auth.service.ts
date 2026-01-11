@@ -335,7 +335,9 @@ export class AuthService {
     const code = this.generateVerificationCode();
     const expiresAt = new Date(Date.now() + this.verificationTtlMs);
     await this.usersService.saveVerificationCode(userId, code, expiresAt);
-    await this.mailService.sendEmailVerification(email, code, expiresAt);
+    
+    // Gửi email trong background để không block response
+    this.mailService.sendEmailVerificationAsync(email, code, expiresAt);
 
     return {
       expiresIn: Math.floor(this.verificationTtlMs / 1000),
@@ -346,7 +348,10 @@ export class AuthService {
     const code = this.generateVerificationCode();
     const expiresAt = new Date(Date.now() + this.resetTtlMs);
     await this.usersService.saveResetCode(userId, code, expiresAt);
-    await this.mailService.sendPasswordReset(email, code, expiresAt);
+    
+    // Gửi email trong background để không block response
+    this.mailService.sendPasswordResetAsync(email, code, expiresAt);
+    
     return {
       expiresIn: Math.floor(this.resetTtlMs / 1000),
     };

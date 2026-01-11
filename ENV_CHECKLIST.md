@@ -45,7 +45,8 @@ NODE_ENV=production
 - ✅ `JWT_REFRESH_EXPIRES_IN` - OK
 - ✅ `PORT` - OK (Render sẽ override thành 10000)
 - ✅ `HOST` - OK
-- ✅ `MAIL_USER`, `MAIL_PASS`, `MAIL_FROM_NAME` - OK
+- ⚠️ `MAIL_USER`, `MAIL_PASS`, `MAIL_FROM_NAME` - **QUAN TRỌNG:** `MAIL_PASS` phải là Gmail App Password (16 ký tự, không có khoảng trắng)
+- ⚠️ `MAIL_USE_SSL` - Tùy chọn: set `true` để dùng port 465 (SSL) thay vì 587 (TLS) nếu bị timeout
 - ✅ `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` - OK
 - ✅ `AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION` - OK
 - ✅ `AZURE_OPENAI_*` - OK
@@ -61,6 +62,7 @@ NODE_ENV=production
 - [ ] Đã copy tất cả biến vào Render Dashboard → Environment Variables
 - [ ] Đã kiểm tra không có khoảng trắng thừa
 - [ ] Đã kiểm tra password trong DATABASE_URL đúng
+- [ ] Đã tạo Gmail App Password và cập nhật `MAIL_PASS` (xem `FIX_MAIL_COMPLETE.md`)
 
 ## 🚀 Sau khi sửa:
 
