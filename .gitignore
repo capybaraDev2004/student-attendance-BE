@@ -49,6 +49,12 @@ lerna-debug.log*
 .temp
 .tmp
 
+DEBUG_MAIL.md
+DEBUG_MAIL.txt
+DEPLOY.md
+ENV_CHECKLIST.md
+
+
 # Runtime data
 pids
 *.pid
