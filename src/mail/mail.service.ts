@@ -22,9 +22,24 @@ export class MailService {
     this.fromAddress = user ?? 'no-reply@capychina.app';
     this.fromName = this.configService.get<string>('MAIL_FROM_NAME') ?? 'CapyChina';
 
+    // Cấu hình SMTP với timeout và connection settings để tránh timeout trên production
     this.transporter = nodemailer.createTransport({
-      service: 'gmail',
+      host: 'smtp.gmail.com',
+      port: 587,
+      secure: false, // true cho 465, false cho các port khác
       auth: user && pass ? { user, pass } : undefined,
+      // Tăng timeout để tránh lỗi connection timeout trên Render
+      connectionTimeout: 60000, // 60 seconds
+      greetingTimeout: 30000, // 30 seconds
+      socketTimeout: 60000, // 60 seconds
+      // TLS options
+      tls: {
+        // Không từ chối các chứng chỉ không hợp lệ (có thể cần trong một số môi trường)
+        rejectUnauthorized: true,
+      },
+      // Debug (chỉ bật trong development)
+      debug: process.env.NODE_ENV === 'development',
+      logger: process.env.NODE_ENV === 'development',
     });
   }
 
@@ -88,10 +103,15 @@ export class MailService {
         subject: 'CapyChina - Xác thực tài khoản',
         html,
       });
+      this.logger.log(`✅ Email xác thực đã được gửi thành công đến ${to}`);
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : undefined;
       this.logger.error(
-        `Gửi email xác thực thất bại đến ${to}: ${String(error)}`,
+        `❌ Gửi email xác thực thất bại đến ${to}: ${errorMessage}`,
+        errorStack,
       );
+      // Không throw error để không làm gián đoạn flow (code đã được save trong DB)
     }
   }
 
@@ -148,8 +168,15 @@ export class MailService {
         subject: 'CapyChina - Đặt lại mật khẩu',
         html,
       });
+      this.logger.log(`✅ Email đặt lại mật khẩu đã được gửi thành công đến ${to}`);
     } catch (error) {
-      this.logger.error(`Gửi email đặt lại mật khẩu thất bại: ${String(error)}`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      this.logger.error(
+        `❌ Gửi email đặt lại mật khẩu thất bại đến ${to}: ${errorMessage}`,
+        errorStack,
+      );
+      // Không throw error để không làm gián đoạn flow (code đã được save trong DB)
     }
   }
 }
