@@ -14,56 +14,91 @@ export class MailService {
 
     this.logger.log(`📧 MailService initializing with Gmail SMTP`);
 
-    // Sử dụng Gmail SMTP
-    const user = this.configService.get<string>('MAIL_USER');
-    let pass = this.configService.get<string>('MAIL_PASS');
+    // Sử dụng các biến SMTP_* từ .env
+    const smtpHost = this.configService.get<string>('SMTP_HOST') || 'smtp.gmail.com';
+    const smtpPort = parseInt(this.configService.get<string>('SMTP_PORT') || '587', 10);
+    const smtpUser = this.configService.get<string>('SMTP_USER');
+    let smtpPass = this.configService.get<string>('SMTP_PASS');
+    const useSSL = this.configService.get<string>('MAIL_USE_SSL') === 'true';
     
     // Strip quotes nếu có (một số env var có thể có quotes)
-    if (pass) {
-      if ((pass.startsWith('"') && pass.endsWith('"')) || (pass.startsWith("'") && pass.endsWith("'"))) {
-        pass = pass.slice(1, -1);
+    if (smtpPass) {
+      if ((smtpPass.startsWith('"') && smtpPass.endsWith('"')) || (smtpPass.startsWith("'") && smtpPass.endsWith("'"))) {
+        smtpPass = smtpPass.slice(1, -1);
       }
     }
 
-    if (!user || !pass) {
-      this.logger.error('❌ MAIL_USER hoặc MAIL_PASS chưa được cấu hình - email sẽ KHÔNG được gửi!');
-      this.logger.error('❌ Vui lòng set MAIL_USER và MAIL_PASS trong environment variables');
+    if (!smtpUser || !smtpPass) {
+      this.logger.error('❌ SMTP_USER hoặc SMTP_PASS chưa được cấu hình - email sẽ KHÔNG được gửi!');
+      this.logger.error('❌ Vui lòng set SMTP_USER và SMTP_PASS trong environment variables');
     } else {
-      this.logger.log(`📧 Gmail User: ${user}`);
-      this.logger.log(`📧 Gmail Pass: ***${pass.slice(-4)}`);
+      this.logger.log(`📧 SMTP Host: ${smtpHost}`);
+      this.logger.log(`📧 SMTP Port: ${smtpPort}`);
+      this.logger.log(`📧 SMTP User: ${smtpUser}`);
+      this.logger.log(`📧 SMTP Pass: ***${smtpPass.slice(-4)}`);
     }
 
-    this.fromAddress = user ?? 'no-reply@capychina.app';
+    this.fromAddress = smtpUser ?? 'no-reply@capychina.app';
 
-    // Cấu hình SMTP với timeout và connection settings
-    const useSSL = this.configService.get<string>('MAIL_USE_SSL') === 'true';
-    const smtpPort = useSSL ? 465 : 587;
+    // Xác định secure dựa trên port (465 = SSL, 587 = STARTTLS) hoặc MAIL_USE_SSL
+    const secure = useSSL || smtpPort === 465;
     
     this.transporter = nodemailer.createTransport({
-      host: 'smtp.gmail.com',
+      host: smtpHost,
       port: smtpPort,
-      secure: useSSL,
-      auth: user && pass ? { user, pass } : undefined,
-      connectionTimeout: 30000,
-      greetingTimeout: 15000,
-      socketTimeout: 30000,
+      secure: secure, // true cho 465, false cho 587 (STARTTLS)
+      auth: smtpUser && smtpPass ? { user: smtpUser, pass: smtpPass } : undefined,
+      // Timeout settings - tối ưu cho Render
+      connectionTimeout: 20000, // 20 seconds
+      greetingTimeout: 10000, // 10 seconds  
+      socketTimeout: 20000, // 20 seconds
+      // TLS options
       tls: {
-        rejectUnauthorized: true,
+        rejectUnauthorized: true, // Verify certificate
+        minVersion: 'TLSv1.2', // Minimum TLS version
       },
+      // Require TLS cho port 587 (STARTTLS)
+      requireTLS: !secure,
+      // Debug (chỉ bật trong development)
       debug: process.env.NODE_ENV === 'development',
       logger: process.env.NODE_ENV === 'development',
     });
 
-    this.logger.log(`✅ MailService initialized with Gmail SMTP (port ${smtpPort}, SSL: ${useSSL})`);
-    this.logger.log(`✅ From address: ${this.fromAddress}`);
+    this.logger.log(`✅ MailService initialized with Gmail SMTP`);
+    this.logger.log(`   - Host: ${smtpHost}`);
+    this.logger.log(`   - Port: ${smtpPort} (${secure ? 'SSL' : 'STARTTLS'})`);
+    this.logger.log(`   - From: ${this.fromAddress}`);
     
-    // Verify connection khi khởi tạo (chỉ log, không block)
-    if (user && pass) {
-      this.verifyConnection().catch((error) => {
+    // Verify connection khi khởi tạo (với timeout ngắn)
+    if (smtpUser && smtpPass) {
+      this.verifyConnectionWithTimeout().catch((error) => {
         this.logger.warn(
           `⚠️  SMTP connection verification failed (will retry on send): ${error instanceof Error ? error.message : String(error)}`,
         );
       });
+    }
+  }
+
+  // Verify SMTP connection với timeout
+  private async verifyConnectionWithTimeout(): Promise<void> {
+    try {
+      // Verify với timeout 15 giây (tăng từ 10s để tránh timeout trên mạng chậm)
+      const verifyPromise = this.transporter.verify();
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('Verification timeout after 15s')), 15000);
+      });
+      
+      await Promise.race([verifyPromise, timeoutPromise]);
+      this.logger.log('✅ SMTP connection verified successfully');
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      // Chỉ log warning, không throw - connection sẽ được test khi gửi email
+      if (errorMessage.includes('timeout')) {
+        this.logger.warn(`⚠️  SMTP verification timeout (this is OK, connection will be tested when sending email)`);
+      } else {
+        this.logger.warn(`⚠️  SMTP verification failed: ${errorMessage}`);
+        this.logger.warn(`⚠️  Connection will be tested when sending email.`);
+      }
     }
   }
 
@@ -134,9 +169,11 @@ export class MailService {
   }
 
   private async sendWithGmail(to: string, subject: string, html: string): Promise<void> {
-    // Retry logic: thử gửi tối đa 2 lần
+    // Retry logic: thử gửi tối đa 3 lần với exponential backoff
     let lastError: Error | null = null;
-    for (let attempt = 1; attempt <= 2; attempt++) {
+    const maxAttempts = 3;
+    
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
         await this.transporter.sendMail({
           to,
@@ -144,23 +181,28 @@ export class MailService {
           subject,
           html,
         });
-        this.logger.log(`✅ Email đã được gửi thành công qua Gmail đến ${to} (attempt ${attempt})`);
+        this.logger.log(`✅ Email đã được gửi thành công qua Gmail đến ${to} (attempt ${attempt}/${maxAttempts})`);
         return; // Thành công, thoát
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
         const errorMessage = lastError.message;
+        const errorCode = (lastError as any).code;
         
-        if (attempt < 2) {
+        if (attempt < maxAttempts) {
+          // Exponential backoff: 2s, 4s (tối đa 4s để không chờ quá lâu)
+          const delayMs = Math.min(2000 * Math.pow(2, attempt - 1), 4000);
           this.logger.warn(
-            `⚠️  Gửi email qua Gmail thất bại (attempt ${attempt}/2) đến ${to}: ${errorMessage}. Đang thử lại...`,
+            `⚠️  Gửi email qua Gmail thất bại (attempt ${attempt}/${maxAttempts}) đến ${to}: ${errorMessage}${errorCode ? ` [${errorCode}]` : ''}. Đang thử lại sau ${delayMs}ms...`,
           );
-          // Đợi 2 giây trước khi retry
-          await new Promise((resolve) => setTimeout(resolve, 2000));
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
         } else {
+          // Lần thử cuối cùng thất bại
           this.logger.error(
-            `❌ Gửi email qua Gmail thất bại đến ${to} sau ${attempt} lần thử: ${errorMessage}`,
-            lastError.stack,
+            `❌ Gửi email qua Gmail thất bại đến ${to} sau ${maxAttempts} lần thử: ${errorMessage}${errorCode ? ` [${errorCode}]` : ''}`,
           );
+          if (lastError.stack) {
+            this.logger.error(`Stack trace: ${lastError.stack}`);
+          }
         }
       }
     }
@@ -231,19 +273,5 @@ export class MailService {
     await this.sendWithGmail(to, 'CapyChina - Đặt lại mật khẩu', html);
   }
 
-  // Verify SMTP connection
-  private async verifyConnection(): Promise<void> {
-    if (!this.transporter) {
-      throw new Error('Transporter not configured');
-    }
-    try {
-      await this.transporter.verify();
-      this.logger.log('✅ SMTP connection verified successfully');
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      this.logger.warn(`⚠️  SMTP verification failed: ${errorMessage}`);
-      throw error;
-    }
-  }
 }
 
