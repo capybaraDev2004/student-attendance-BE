@@ -11,42 +11,11 @@ SET client_encoding = 'UTF8';
 --
 -- Name: AccountStatus; Type: TYPE; Schema: public; Owner: -
 --
-
-CREATE TYPE public."AccountStatus" AS ENUM (
-    'normal',
-    'vip'
-);
-
-
 --
 -- Name: AccountType; Type: TYPE; Schema: public; Owner: -
 --
 
-CREATE TYPE public."AccountType" AS ENUM (
-    'local',
-    'google'
-);
 
-
---
--- Name: Region; Type: TYPE; Schema: public; Owner: -
---
-
-CREATE TYPE public."Region" AS ENUM (
-    'bac',
-    'trung',
-    'nam'
-);
-
-
---
--- Name: Role; Type: TYPE; Schema: public; Owner: -
---
-
-CREATE TYPE public."Role" AS ENUM (
-    'admin',
-    'customer'
-);
 
 
 
@@ -5402,4 +5371,4 @@ ALTER TABLE ONLY public.vocabulary
 
 --
 -- PostgreSQL database dump complete
---
+--

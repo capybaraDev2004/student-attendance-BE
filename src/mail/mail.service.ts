@@ -1,78 +1,69 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as nodemailer from 'nodemailer';
-import { Resend } from 'resend';
-
-type MailProvider = 'gmail' | 'resend';
 
 @Injectable()
 export class MailService {
   private readonly logger = new Logger(MailService.name);
   private readonly fromAddress: string;
   private readonly fromName: string;
-  private readonly provider: MailProvider;
-  private readonly transporter?: nodemailer.Transporter;
-  private readonly resendClient?: Resend;
+  private readonly transporter: nodemailer.Transporter;
 
   constructor(private readonly configService: ConfigService) {
-    // Xác định provider: resend (khuyến nghị) hoặc gmail (có thể bị block trên Render)
-    this.provider = (this.configService.get<string>('MAIL_PROVIDER') || 'resend') as MailProvider;
     this.fromName = this.configService.get<string>('MAIL_FROM_NAME') ?? 'CapyChina';
 
-    if (this.provider === 'resend') {
-      // Sử dụng Resend (API-based, không bị block bởi firewall)
-      const resendApiKey = this.configService.get<string>('RESEND_API_KEY');
-      const resendFromEmail = this.configService.get<string>('RESEND_FROM_EMAIL') || 'onboarding@resend.dev';
-      
-      if (!resendApiKey) {
-        this.logger.warn('RESEND_API_KEY chưa được cấu hình - email sẽ không được gửi');
-      } else {
-        this.resendClient = new Resend(resendApiKey);
-        this.fromAddress = resendFromEmail;
-        this.logger.log('✅ MailService initialized with Resend (API-based)');
+    this.logger.log(`📧 MailService initializing with Gmail SMTP`);
+
+    // Sử dụng Gmail SMTP
+    const user = this.configService.get<string>('MAIL_USER');
+    let pass = this.configService.get<string>('MAIL_PASS');
+    
+    // Strip quotes nếu có (một số env var có thể có quotes)
+    if (pass) {
+      if ((pass.startsWith('"') && pass.endsWith('"')) || (pass.startsWith("'") && pass.endsWith("'"))) {
+        pass = pass.slice(1, -1);
       }
+    }
+
+    if (!user || !pass) {
+      this.logger.error('❌ MAIL_USER hoặc MAIL_PASS chưa được cấu hình - email sẽ KHÔNG được gửi!');
+      this.logger.error('❌ Vui lòng set MAIL_USER và MAIL_PASS trong environment variables');
     } else {
-      // Sử dụng Gmail SMTP (có thể bị block trên Render)
-      const user = this.configService.get<string>('MAIL_USER');
-      const pass = this.configService.get<string>('MAIL_PASS');
+      this.logger.log(`📧 Gmail User: ${user}`);
+      this.logger.log(`📧 Gmail Pass: ***${pass.slice(-4)}`);
+    }
 
-      if (!user || !pass) {
+    this.fromAddress = user ?? 'no-reply@capychina.app';
+
+    // Cấu hình SMTP với timeout và connection settings
+    const useSSL = this.configService.get<string>('MAIL_USE_SSL') === 'true';
+    const smtpPort = useSSL ? 465 : 587;
+    
+    this.transporter = nodemailer.createTransport({
+      host: 'smtp.gmail.com',
+      port: smtpPort,
+      secure: useSSL,
+      auth: user && pass ? { user, pass } : undefined,
+      connectionTimeout: 30000,
+      greetingTimeout: 15000,
+      socketTimeout: 30000,
+      tls: {
+        rejectUnauthorized: true,
+      },
+      debug: process.env.NODE_ENV === 'development',
+      logger: process.env.NODE_ENV === 'development',
+    });
+
+    this.logger.log(`✅ MailService initialized with Gmail SMTP (port ${smtpPort}, SSL: ${useSSL})`);
+    this.logger.log(`✅ From address: ${this.fromAddress}`);
+    
+    // Verify connection khi khởi tạo (chỉ log, không block)
+    if (user && pass) {
+      this.verifyConnection().catch((error) => {
         this.logger.warn(
-          'MAIL_USER hoặc MAIL_PASS chưa được cấu hình - email sẽ không được gửi',
+          `⚠️  SMTP connection verification failed (will retry on send): ${error instanceof Error ? error.message : String(error)}`,
         );
-      }
-
-      this.fromAddress = user ?? 'no-reply@capychina.app';
-
-      // Cấu hình SMTP với timeout và connection settings
-      const useSSL = process.env.MAIL_USE_SSL === 'true';
-      const smtpPort = useSSL ? 465 : 587;
-      
-      this.transporter = nodemailer.createTransport({
-        host: 'smtp.gmail.com',
-        port: smtpPort,
-        secure: useSSL,
-        auth: user && pass ? { user, pass } : undefined,
-        connectionTimeout: 30000,
-        greetingTimeout: 15000,
-        socketTimeout: 30000,
-        tls: {
-          rejectUnauthorized: true,
-        },
-        debug: process.env.NODE_ENV === 'development',
-        logger: process.env.NODE_ENV === 'development',
       });
-
-      this.logger.log('✅ MailService initialized with Gmail SMTP');
-      
-      // Verify connection khi khởi tạo (chỉ log, không block)
-      if (user && pass) {
-        this.verifyConnection().catch((error) => {
-          this.logger.warn(
-            `SMTP connection verification failed (will retry on send): ${error instanceof Error ? error.message : String(error)}`,
-          );
-        });
-      }
     }
   }
 
@@ -138,46 +129,11 @@ export class MailService {
       </table>
     `;
 
-    // Gửi email bằng provider được chọn
-    if (this.provider === 'resend') {
-      await this.sendWithResend(to, 'CapyChina - Xác thực tài khoản', html);
-    } else {
-      await this.sendWithGmail(to, 'CapyChina - Xác thực tài khoản', html);
-    }
-  }
-
-  private async sendWithResend(to: string, subject: string, html: string): Promise<void> {
-    if (!this.resendClient) {
-      this.logger.warn('Resend client chưa được cấu hình - email sẽ không được gửi');
-      return;
-    }
-
-    try {
-      const { data, error } = await this.resendClient.emails.send({
-        from: `${this.fromName} <${this.fromAddress}>`,
-        to: [to],
-        subject,
-        html,
-      });
-
-      if (error) {
-        throw new Error(`Resend API error: ${JSON.stringify(error)}`);
-      }
-
-      this.logger.log(`✅ Email đã được gửi thành công qua Resend đến ${to} (ID: ${data?.id})`);
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      this.logger.error(`❌ Gửi email qua Resend thất bại đến ${to}: ${errorMessage}`);
-      // Không throw error để không làm gián đoạn flow
-    }
+    // Gửi email bằng Gmail SMTP
+    await this.sendWithGmail(to, 'CapyChina - Xác thực tài khoản', html);
   }
 
   private async sendWithGmail(to: string, subject: string, html: string): Promise<void> {
-    if (!this.transporter) {
-      this.logger.warn('Gmail transporter chưa được cấu hình - email sẽ không được gửi');
-      return;
-    }
-
     // Retry logic: thử gửi tối đa 2 lần
     let lastError: Error | null = null;
     for (let attempt = 1; attempt <= 2; attempt++) {
@@ -271,12 +227,8 @@ export class MailService {
       </table>
     `;
 
-    // Gửi email bằng provider được chọn
-    if (this.provider === 'resend') {
-      await this.sendWithResend(to, 'CapyChina - Đặt lại mật khẩu', html);
-    } else {
-      await this.sendWithGmail(to, 'CapyChina - Đặt lại mật khẩu', html);
-    }
+    // Gửi email bằng Gmail SMTP
+    await this.sendWithGmail(to, 'CapyChina - Đặt lại mật khẩu', html);
   }
 
   // Verify SMTP connection
