@@ -7,7 +7,23 @@ export class MailService {
   private readonly logger = new Logger(MailService.name);
   private readonly fromAddress: string;
   private readonly fromName: string;
-  private readonly transporter: nodemailer.Transporter;
+  private transporter: nodemailer.Transporter;
+  private readonly smtpConfig: {
+    host: string;
+    port: number;
+    secure: boolean;
+    auth?: { user: string; pass: string };
+    connectionTimeout: number;
+    greetingTimeout: number;
+    socketTimeout: number;
+    tls: { rejectUnauthorized: boolean; minVersion: string };
+    requireTLS: boolean;
+    pool: boolean;
+    maxConnections: number;
+    maxMessages: number;
+    debug: boolean;
+    logger: boolean;
+  };
 
   constructor(private readonly configService: ConfigService) {
     this.fromName = this.configService.get<string>('MAIL_FROM_NAME') ?? 'CapyChina';
@@ -43,39 +59,44 @@ export class MailService {
     // Xác định secure dựa trên port (465 = SSL, 587 = STARTTLS) hoặc MAIL_USE_SSL
     const secure = useSSL || smtpPort === 465;
     
-    this.transporter = nodemailer.createTransport({
+    // Lưu config để có thể recreate transporter khi retry
+    this.smtpConfig = {
       host: smtpHost,
       port: smtpPort,
-      secure: secure, // true cho 465, false cho 587 (STARTTLS)
+      secure: secure,
       auth: smtpUser && smtpPass ? { user: smtpUser, pass: smtpPass } : undefined,
-      // Timeout settings - tối ưu cho Render
-      connectionTimeout: 20000, // 20 seconds
-      greetingTimeout: 10000, // 10 seconds  
-      socketTimeout: 20000, // 20 seconds
-      // TLS options
+      connectionTimeout: 60000, // 60 seconds
+      greetingTimeout: 30000, // 30 seconds
+      socketTimeout: 60000, // 60 seconds
       tls: {
-        rejectUnauthorized: true, // Verify certificate
-        minVersion: 'TLSv1.2', // Minimum TLS version
+        rejectUnauthorized: true,
+        minVersion: 'TLSv1.2',
       },
-      // Require TLS cho port 587 (STARTTLS)
       requireTLS: !secure,
-      // Debug (chỉ bật trong development)
+      pool: false, // Tắt pool để tránh connection timeout issues trên Render
+      maxConnections: 1,
+      maxMessages: 1,
       debug: process.env.NODE_ENV === 'development',
       logger: process.env.NODE_ENV === 'development',
-    });
+    };
+    
+    this.transporter = nodemailer.createTransport(this.smtpConfig);
 
     this.logger.log(`✅ MailService initialized with Gmail SMTP`);
     this.logger.log(`   - Host: ${smtpHost}`);
     this.logger.log(`   - Port: ${smtpPort} (${secure ? 'SSL' : 'STARTTLS'})`);
     this.logger.log(`   - From: ${this.fromAddress}`);
     
-    // Verify connection khi khởi tạo (với timeout ngắn)
-    if (smtpUser && smtpPass) {
+    // Chỉ verify connection trong development (tránh timeout trên production)
+    const isDevelopment = process.env.NODE_ENV === 'development';
+    if (smtpUser && smtpPass && isDevelopment) {
       this.verifyConnectionWithTimeout().catch((error) => {
         this.logger.warn(
           `⚠️  SMTP connection verification failed (will retry on send): ${error instanceof Error ? error.message : String(error)}`,
         );
       });
+    } else if (smtpUser && smtpPass && !isDevelopment) {
+      this.logger.log(`📧 SMTP connection will be verified on first email send (skipping startup verification in production)`);
     }
   }
 
@@ -175,6 +196,18 @@ export class MailService {
     
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
+        // Recreate transporter nếu retry (để tránh dùng connection cũ bị timeout)
+        if (attempt > 1) {
+          this.logger.log(`🔄 Recreating SMTP connection for attempt ${attempt}...`);
+          try {
+            this.transporter.close();
+          } catch (e) {
+            // Ignore errors khi close
+          }
+          // Tạo transporter mới
+          this.transporter = nodemailer.createTransport(this.smtpConfig);
+        }
+        
         await this.transporter.sendMail({
           to,
           from: `"${this.fromName}" <${this.fromAddress}>`,
@@ -188,9 +221,13 @@ export class MailService {
         const errorMessage = lastError.message;
         const errorCode = (lastError as any).code;
         
+        // Kiểm tra nếu là timeout error
+        const isTimeout = errorMessage.includes('timeout') || errorMessage.includes('ETIMEDOUT') || errorCode === 'ETIMEDOUT';
+        
         if (attempt < maxAttempts) {
-          // Exponential backoff: 2s, 4s (tối đa 4s để không chờ quá lâu)
-          const delayMs = Math.min(2000 * Math.pow(2, attempt - 1), 4000);
+          // Exponential backoff: 3s, 6s (tăng delay cho timeout errors)
+          const baseDelay = isTimeout ? 3000 : 2000;
+          const delayMs = Math.min(baseDelay * Math.pow(2, attempt - 1), 6000);
           this.logger.warn(
             `⚠️  Gửi email qua Gmail thất bại (attempt ${attempt}/${maxAttempts}) đến ${to}: ${errorMessage}${errorCode ? ` [${errorCode}]` : ''}. Đang thử lại sau ${delayMs}ms...`,
           );
@@ -200,6 +237,9 @@ export class MailService {
           this.logger.error(
             `❌ Gửi email qua Gmail thất bại đến ${to} sau ${maxAttempts} lần thử: ${errorMessage}${errorCode ? ` [${errorCode}]` : ''}`,
           );
+          if (isTimeout) {
+            this.logger.error(`❌ Connection timeout - Có thể Render block SMTP hoặc mạng quá chậm. Xem xét dùng dịch vụ email API-based (Resend/SendGrid).`);
+          }
           if (lastError.stack) {
             this.logger.error(`Stack trace: ${lastError.stack}`);
           }
