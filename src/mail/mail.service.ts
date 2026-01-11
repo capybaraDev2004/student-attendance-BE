@@ -7,23 +7,7 @@ export class MailService {
   private readonly logger = new Logger(MailService.name);
   private readonly fromAddress: string;
   private readonly fromName: string;
-  private transporter: nodemailer.Transporter;
-  private readonly smtpConfig: {
-    host: string;
-    port: number;
-    secure: boolean;
-    auth?: { user: string; pass: string };
-    connectionTimeout: number;
-    greetingTimeout: number;
-    socketTimeout: number;
-    tls: { rejectUnauthorized: boolean; minVersion: string };
-    requireTLS: boolean;
-    pool: boolean;
-    maxConnections: number;
-    maxMessages: number;
-    debug: boolean;
-    logger: boolean;
-  };
+  private readonly transporter: nodemailer.Transporter;
 
   constructor(private readonly configService: ConfigService) {
     this.fromName = this.configService.get<string>('MAIL_FROM_NAME') ?? 'CapyChina';
@@ -31,11 +15,8 @@ export class MailService {
     this.logger.log(`📧 MailService initializing with Gmail SMTP`);
 
     // Sử dụng các biến SMTP_* từ .env
-    const smtpHost = this.configService.get<string>('SMTP_HOST') || 'smtp.gmail.com';
-    const smtpPort = parseInt(this.configService.get<string>('SMTP_PORT') || '587', 10);
     const smtpUser = this.configService.get<string>('SMTP_USER');
     let smtpPass = this.configService.get<string>('SMTP_PASS');
-    const useSSL = this.configService.get<string>('MAIL_USE_SSL') === 'true';
     
     // Strip quotes nếu có (một số env var có thể có quotes)
     if (smtpPass) {
@@ -48,80 +29,27 @@ export class MailService {
       this.logger.error('❌ SMTP_USER hoặc SMTP_PASS chưa được cấu hình - email sẽ KHÔNG được gửi!');
       this.logger.error('❌ Vui lòng set SMTP_USER và SMTP_PASS trong environment variables');
     } else {
-      this.logger.log(`📧 SMTP Host: ${smtpHost}`);
-      this.logger.log(`📧 SMTP Port: ${smtpPort}`);
       this.logger.log(`📧 SMTP User: ${smtpUser}`);
       this.logger.log(`📧 SMTP Pass: ***${smtpPass.slice(-4)}`);
     }
 
     this.fromAddress = smtpUser ?? 'no-reply@capychina.app';
 
-    // Xác định secure dựa trên port (465 = SSL, 587 = STARTTLS) hoặc MAIL_USE_SSL
-    const secure = useSSL || smtpPort === 465;
-    
-    // Lưu config để có thể recreate transporter khi retry
-    this.smtpConfig = {
-      host: smtpHost,
-      port: smtpPort,
-      secure: secure,
-      auth: smtpUser && smtpPass ? { user: smtpUser, pass: smtpPass } : undefined,
-      connectionTimeout: 60000, // 60 seconds
-      greetingTimeout: 30000, // 30 seconds
-      socketTimeout: 60000, // 60 seconds
-      tls: {
-        rejectUnauthorized: true,
-        minVersion: 'TLSv1.2',
-      },
-      requireTLS: !secure,
-      pool: false, // Tắt pool để tránh connection timeout issues trên Render
-      maxConnections: 1,
-      maxMessages: 1,
-      debug: process.env.NODE_ENV === 'development',
-      logger: process.env.NODE_ENV === 'development',
-    };
-    
-    this.transporter = nodemailer.createTransport(this.smtpConfig);
+    // Config Nodemailer CHUẨN cho Gmail (đơn giản nhất)
+    this.transporter = nodemailer.createTransport({
+      host: 'smtp.gmail.com',
+      port: 587,
+      secure: false,
+      auth: smtpUser && smtpPass ? {
+        user: smtpUser,
+        pass: smtpPass,
+      } : undefined,
+    });
 
-    this.logger.log(`✅ MailService initialized with Gmail SMTP`);
-    this.logger.log(`   - Host: ${smtpHost}`);
-    this.logger.log(`   - Port: ${smtpPort} (${secure ? 'SSL' : 'STARTTLS'})`);
+    this.logger.log(`✅ MailService initialized with Gmail SMTP (port 587, STARTTLS)`);
     this.logger.log(`   - From: ${this.fromAddress}`);
-    
-    // Chỉ verify connection trong development (tránh timeout trên production)
-    const isDevelopment = process.env.NODE_ENV === 'development';
-    if (smtpUser && smtpPass && isDevelopment) {
-      this.verifyConnectionWithTimeout().catch((error) => {
-        this.logger.warn(
-          `⚠️  SMTP connection verification failed (will retry on send): ${error instanceof Error ? error.message : String(error)}`,
-        );
-      });
-    } else if (smtpUser && smtpPass && !isDevelopment) {
-      this.logger.log(`📧 SMTP connection will be verified on first email send (skipping startup verification in production)`);
-    }
   }
 
-  // Verify SMTP connection với timeout
-  private async verifyConnectionWithTimeout(): Promise<void> {
-    try {
-      // Verify với timeout 15 giây (tăng từ 10s để tránh timeout trên mạng chậm)
-      const verifyPromise = this.transporter.verify();
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error('Verification timeout after 15s')), 15000);
-      });
-      
-      await Promise.race([verifyPromise, timeoutPromise]);
-      this.logger.log('✅ SMTP connection verified successfully');
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      // Chỉ log warning, không throw - connection sẽ được test khi gửi email
-      if (errorMessage.includes('timeout')) {
-        this.logger.warn(`⚠️  SMTP verification timeout (this is OK, connection will be tested when sending email)`);
-      } else {
-        this.logger.warn(`⚠️  SMTP verification failed: ${errorMessage}`);
-        this.logger.warn(`⚠️  Connection will be tested when sending email.`);
-      }
-    }
-  }
 
   // Gửi email trong background (không block)
   sendEmailVerificationAsync(
@@ -196,18 +124,6 @@ export class MailService {
     
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
-        // Recreate transporter nếu retry (để tránh dùng connection cũ bị timeout)
-        if (attempt > 1) {
-          this.logger.log(`🔄 Recreating SMTP connection for attempt ${attempt}...`);
-          try {
-            this.transporter.close();
-          } catch (e) {
-            // Ignore errors khi close
-          }
-          // Tạo transporter mới
-          this.transporter = nodemailer.createTransport(this.smtpConfig);
-        }
-        
         await this.transporter.sendMail({
           to,
           from: `"${this.fromName}" <${this.fromAddress}>`,
