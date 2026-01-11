@@ -269,6 +269,52 @@ curl -X POST https://your-api.railway.app/auth/login \
 - Kiểm tra file `dist/main.js` có tồn tại sau khi build
 - Render sẽ tự động detect `render.yaml` nếu có
 
+### Lỗi: App chạy nhưng không listen đúng PORT (ví dụ: đang dùng port 3001 thay vì 10000)
+**Triệu chứng:**
+- App start thành công nhưng log hiển thị port 3001 thay vì 10000
+- Log hiển thị format development thay vì production
+- Render không detect được port đang listen
+
+**Nguyên nhân:**
+- Environment variables (`PORT`, `NODE_ENV`, `HOST`) từ `render.yaml` không được áp dụng
+- Render có thể không đọc `render.yaml` tự động, cần set thủ công trong Dashboard
+
+**Cách fix:**
+
+1. **Set Environment Variables trong Render Dashboard (BẮT BUỘC):**
+   - Vào Render Dashboard → Web Service → Environment
+   - Thêm các biến sau (nếu chưa có):
+     ```
+     PORT=10000
+     NODE_ENV=production
+     HOST=0.0.0.0
+     ```
+   - **Lưu ý:** Render tự động set `PORT`, nhưng có thể override bằng env var
+   - Đảm bảo `NODE_ENV=production` để app chạy đúng mode
+
+2. **Kiểm tra render.yaml:**
+   - File `render.yaml` đã có các env vars, nhưng Render có thể không đọc tự động
+   - Nên set thủ công trong Dashboard để đảm bảo
+
+3. **Verify sau khi set:**
+   - Restart service (hoặc đợi auto-redeploy)
+   - Check logs, bạn sẽ thấy:
+     ```
+     📋 Environment Variables:
+        - NODE_ENV: production
+        - PORT: 10000
+        - HOST: 0.0.0.0
+     🚀 Backend NestJS đang chạy tại:
+        - Host: 0.0.0.0
+        - Port: 10000
+        - Environment: production
+     ```
+
+4. **Nếu vẫn không work:**
+   - Kiểm tra Render Dashboard → Settings → Environment Variables
+   - Đảm bảo không có conflict giữa `render.yaml` và Dashboard settings
+   - Render ưu tiên Dashboard settings hơn `render.yaml`
+
 ### Lỗi: "Authentication failed" hoặc "database credentials are not valid"
 **Lỗi cụ thể:** `PrismaClientInitializationError: Authentication failed against database server, the provided database credentials for 'postgres' are not valid.`
 

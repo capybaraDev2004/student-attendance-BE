@@ -21,21 +21,45 @@ async function bootstrap() {
     ? process.env.FRONTEND_URL.split(',').map((url) => url.trim())
     : ['http://localhost:3000', 'http://192.168.1.10:3000'];
 
+  // Log allowed origins để debug
+  console.log('🌐 Allowed CORS origins:', allowedOrigins);
+
   app.enableCors({
     origin: (origin, callback) => {
       // Cho phép requests không có origin (mobile apps, Postman, etc.)
       if (!origin) return callback(null, true);
       
-      // Kiểm tra origin có trong danh sách cho phép không
-      if (allowedOrigins.some((allowed) => origin.startsWith(allowed.replace(/:\d+$/, '')))) {
+      // Hàm normalize origin để so sánh (bỏ trailing slash, lowercase)
+      const normalizeOrigin = (url: string) => url.toLowerCase().replace(/\/$/, '');
+      
+      // Kiểm tra exact match trước
+      const isExactMatch = allowedOrigins.some((allowed) => 
+        normalizeOrigin(origin) === normalizeOrigin(allowed)
+      );
+      
+      if (isExactMatch) {
+        callback(null, true);
+        return;
+      }
+      
+      // Kiểm tra match với port flexibility (http://localhost:3000 matches http://localhost:PORT)
+      const originWithoutPort = origin.replace(/:\d+$/, '');
+      const isMatchWithoutPort = allowedOrigins.some((allowed) => {
+        const allowedWithoutPort = allowed.replace(/:\d+$/, '');
+        return normalizeOrigin(originWithoutPort) === normalizeOrigin(allowedWithoutPort);
+      });
+      
+      if (isMatchWithoutPort) {
+        callback(null, true);
+        return;
+      }
+      
+      // Cho phép tất cả origin trong development (có thể tắt trong production)
+      if (process.env.NODE_ENV !== 'production') {
         callback(null, true);
       } else {
-        // Cho phép tất cả origin trong development (có thể tắt trong production)
-        if (process.env.NODE_ENV !== 'production') {
-          callback(null, true);
-        } else {
-          callback(new Error('Not allowed by CORS'));
-        }
+        console.warn(`⚠️  CORS blocked origin: ${origin}`);
+        callback(new Error('Not allowed by CORS'));
       }
     },
     credentials: true,
@@ -75,8 +99,17 @@ async function bootstrap() {
     console.warn(`⚠️  Thư mục uploads không tồn tại: ${uploadsPath}`);
   }
 
-  const port = process.env.PORT || 3001;
+  // Đọc port và host từ environment variables
+  // Render tự động set PORT, nhưng có thể override bằng env var
+  const port = parseInt(process.env.PORT || '3001', 10);
   const host = process.env.HOST || '0.0.0.0';
+  
+  // Log environment variables để debug
+  console.log('📋 Environment Variables:');
+  console.log(`   - NODE_ENV: ${process.env.NODE_ENV || 'not set'}`);
+  console.log(`   - PORT: ${process.env.PORT || 'not set (using default 3001)'}`);
+  console.log(`   - HOST: ${process.env.HOST || 'not set (using default 0.0.0.0)'}`);
+  
   await app.listen(port, host);
   
   // Hiển thị thông tin server
@@ -85,7 +118,8 @@ async function bootstrap() {
     console.log(`🚀 Backend NestJS đang chạy tại:`);
     console.log(`   - Host: ${host}`);
     console.log(`   - Port: ${port}`);
-    console.log(`   - Environment: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`   - Environment: ${process.env.NODE_ENV}`);
+    console.log(`   - URL: http://${host}:${port}`);
   } else {
     // Development: hiển thị IP LAN
     const networkInterfaces = os.networkInterfaces();
