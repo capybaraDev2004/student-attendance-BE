@@ -42,6 +42,8 @@ export class UsersService {
         address: true,
         province: true,
         region: true,
+        vip_package_type: true,
+        vip_expires_at: true,
       },
     });
   }
@@ -67,6 +69,8 @@ export class UsersService {
         address: true,
         province: true,
         region: true,
+        vip_package_type: true,
+        vip_expires_at: true,
       },
     });
 
@@ -158,6 +162,12 @@ export class UsersService {
       address: dto.address,
       province: dto.province,
       region: dto.region,
+      vip_package_type: dto.vip_package_type,
+      vip_expires_at: dto.vip_expires_at
+        ? new Date(dto.vip_expires_at)
+        : dto.vip_expires_at === null
+          ? null
+          : undefined,
     };
 
     if (dto.password) {
@@ -184,6 +194,8 @@ export class UsersService {
           address: true,
           province: true,
           region: true,
+          vip_package_type: true,
+          vip_expires_at: true,
         },
       });
     } catch (error) {
