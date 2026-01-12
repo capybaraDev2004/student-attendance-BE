@@ -1,55 +1,32 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import * as nodemailer from 'nodemailer';
+import axios from 'axios';
 
 @Injectable()
 export class MailService {
   private readonly logger = new Logger(MailService.name);
   private readonly fromAddress: string;
   private readonly fromName: string;
-  private readonly transporter: nodemailer.Transporter;
+  private readonly brevoApiKey: string;
 
   constructor(private readonly configService: ConfigService) {
     this.fromName = this.configService.get<string>('MAIL_FROM_NAME') ?? 'CapyChina';
+    this.fromAddress = this.configService.get<string>('MAIL_FROM') ?? 'no-reply@capychina.app';
+    this.brevoApiKey = this.configService.get<string>('BREVO_API_KEY') ?? '';
 
-    this.logger.log(`📧 MailService initializing with Gmail SMTP`);
+    this.logger.log(`📧 MailService initializing with Brevo Email API`);
 
-    // Sử dụng các biến SMTP_* từ .env
-    const smtpUser = this.configService.get<string>('SMTP_USER');
-    let smtpPass = this.configService.get<string>('SMTP_PASS');
-    
-    // Strip quotes nếu có (một số env var có thể có quotes)
-    if (smtpPass) {
-      if ((smtpPass.startsWith('"') && smtpPass.endsWith('"')) || (smtpPass.startsWith("'") && smtpPass.endsWith("'"))) {
-        smtpPass = smtpPass.slice(1, -1);
-      }
-    }
-
-    if (!smtpUser || !smtpPass) {
-      this.logger.error('❌ SMTP_USER hoặc SMTP_PASS chưa được cấu hình - email sẽ KHÔNG được gửi!');
-      this.logger.error('❌ Vui lòng set SMTP_USER và SMTP_PASS trong environment variables');
+    if (!this.brevoApiKey) {
+      this.logger.error('❌ BREVO_API_KEY chưa được cấu hình - email sẽ KHÔNG được gửi!');
+      this.logger.error('❌ Vui lòng set BREVO_API_KEY trong environment variables');
     } else {
-      this.logger.log(`📧 SMTP User: ${smtpUser}`);
-      this.logger.log(`📧 SMTP Pass: ***${smtpPass.slice(-4)}`);
+      this.logger.log(`📧 Brevo API Key: ***${this.brevoApiKey.slice(-4)}`);
+      this.logger.log(`📧 From: ${this.fromAddress}`);
+      this.logger.log(`📧 From Name: ${this.fromName}`);
     }
 
-    this.fromAddress = smtpUser ?? 'no-reply@capychina.app';
-
-    // Config Nodemailer CHUẨN cho Gmail (đơn giản nhất)
-    this.transporter = nodemailer.createTransport({
-      host: 'smtp.gmail.com',
-      port: 587,
-      secure: false,
-      auth: smtpUser && smtpPass ? {
-        user: smtpUser,
-        pass: smtpPass,
-      } : undefined,
-    });
-
-    this.logger.log(`✅ MailService initialized with Gmail SMTP (port 587, STARTTLS)`);
-    this.logger.log(`   - From: ${this.fromAddress}`);
+    this.logger.log(`✅ MailService initialized with Brevo Email API`);
   }
-
 
   // Gửi email trong background (không block)
   sendEmailVerificationAsync(
@@ -113,56 +90,8 @@ export class MailService {
       </table>
     `;
 
-    // Gửi email bằng Gmail SMTP
-    await this.sendWithGmail(to, 'CapyChina - Xác thực tài khoản', html);
-  }
-
-  private async sendWithGmail(to: string, subject: string, html: string): Promise<void> {
-    // Retry logic: thử gửi tối đa 3 lần với exponential backoff
-    let lastError: Error | null = null;
-    const maxAttempts = 3;
-    
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      try {
-        await this.transporter.sendMail({
-          to,
-          from: `"${this.fromName}" <${this.fromAddress}>`,
-          subject,
-          html,
-        });
-        this.logger.log(`✅ Email đã được gửi thành công qua Gmail đến ${to} (attempt ${attempt}/${maxAttempts})`);
-        return; // Thành công, thoát
-      } catch (error) {
-        lastError = error instanceof Error ? error : new Error(String(error));
-        const errorMessage = lastError.message;
-        const errorCode = (lastError as any).code;
-        
-        // Kiểm tra nếu là timeout error
-        const isTimeout = errorMessage.includes('timeout') || errorMessage.includes('ETIMEDOUT') || errorCode === 'ETIMEDOUT';
-        
-        if (attempt < maxAttempts) {
-          // Exponential backoff: 3s, 6s (tăng delay cho timeout errors)
-          const baseDelay = isTimeout ? 3000 : 2000;
-          const delayMs = Math.min(baseDelay * Math.pow(2, attempt - 1), 6000);
-          this.logger.warn(
-            `⚠️  Gửi email qua Gmail thất bại (attempt ${attempt}/${maxAttempts}) đến ${to}: ${errorMessage}${errorCode ? ` [${errorCode}]` : ''}. Đang thử lại sau ${delayMs}ms...`,
-          );
-          await new Promise((resolve) => setTimeout(resolve, delayMs));
-        } else {
-          // Lần thử cuối cùng thất bại
-          this.logger.error(
-            `❌ Gửi email qua Gmail thất bại đến ${to} sau ${maxAttempts} lần thử: ${errorMessage}${errorCode ? ` [${errorCode}]` : ''}`,
-          );
-          if (isTimeout) {
-            this.logger.error(`❌ Connection timeout - Có thể Render block SMTP hoặc mạng quá chậm. Xem xét dùng dịch vụ email API-based (Resend/SendGrid).`);
-          }
-          if (lastError.stack) {
-            this.logger.error(`Stack trace: ${lastError.stack}`);
-          }
-        }
-      }
-    }
-    // Không throw error để không làm gián đoạn flow (code đã được save trong DB)
+    // Gửi email bằng Brevo API
+    await this.sendWithBrevo(to, 'CapyChina - Xác thực tài khoản', html);
   }
 
   // Gửi email reset password trong background (không block)
@@ -225,9 +154,61 @@ export class MailService {
       </table>
     `;
 
-    // Gửi email bằng Gmail SMTP
-    await this.sendWithGmail(to, 'CapyChina - Đặt lại mật khẩu', html);
+    // Gửi email bằng Brevo API
+    await this.sendWithBrevo(to, 'CapyChina - Đặt lại mật khẩu', html);
   }
 
-}
+  private async sendWithBrevo(to: string, subject: string, html: string): Promise<void> {
+    // Retry logic: thử gửi tối đa 3 lần
+    let lastError: Error | null = null;
+    const maxAttempts = 3;
+    
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const res = await axios.post(
+          'https://api.brevo.com/v3/smtp/email',
+          {
+            sender: {
+              email: this.fromAddress,
+              name: this.fromName,
+            },
+            to: [{ email: to }],
+            subject,
+            htmlContent: html,
+          },
+          {
+            headers: {
+              'api-key': this.brevoApiKey,
+              'Content-Type': 'application/json',
+            },
+            timeout: 10000,
+          },
+        );
 
+        this.logger.log(`✅ Email đã được gửi thành công qua Brevo đến ${to} (attempt ${attempt}/${maxAttempts})`);
+        return; // Thành công, thoát
+      } catch (error: any) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        const errorMessage = error?.response?.data || error.message;
+        
+        if (attempt < maxAttempts) {
+          // Exponential backoff: 2s, 4s
+          const delayMs = Math.min(2000 * Math.pow(2, attempt - 1), 4000);
+          this.logger.warn(
+            `⚠️  Gửi email qua Brevo thất bại (attempt ${attempt}/${maxAttempts}) đến ${to}: ${errorMessage}. Đang thử lại sau ${delayMs}ms...`,
+          );
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+        } else {
+          // Lần thử cuối cùng thất bại
+          this.logger.error(
+            `❌ Gửi email qua Brevo thất bại đến ${to} sau ${maxAttempts} lần thử: ${errorMessage}`,
+          );
+          if (lastError.stack) {
+            this.logger.error(`Stack trace: ${lastError.stack}`);
+          }
+        }
+      }
+    }
+    // Không throw error để không làm gián đoạn flow (code đã được save trong DB)
+  }
+}
