@@ -12,7 +12,17 @@ export class MailService {
   constructor(private readonly configService: ConfigService) {
     this.fromName = this.configService.get<string>('MAIL_FROM_NAME') ?? 'CapyChina';
     this.fromAddress = this.configService.get<string>('MAIL_FROM') ?? 'no-reply@capychina.app';
-    this.brevoApiKey = this.configService.get<string>('BREVO_API_KEY') ?? '';
+    
+    // Lấy BREVO_API_KEY và strip quotes nếu có
+    let brevoApiKey = this.configService.get<string>('BREVO_API_KEY') ?? '';
+    if (brevoApiKey) {
+      if ((brevoApiKey.startsWith('"') && brevoApiKey.endsWith('"')) || (brevoApiKey.startsWith("'") && brevoApiKey.endsWith("'"))) {
+        brevoApiKey = brevoApiKey.slice(1, -1);
+      }
+      // Trim whitespace
+      brevoApiKey = brevoApiKey.trim();
+    }
+    this.brevoApiKey = brevoApiKey;
 
     this.logger.log(`📧 MailService initializing with Brevo Email API`);
 
@@ -20,7 +30,11 @@ export class MailService {
       this.logger.error('❌ BREVO_API_KEY chưa được cấu hình - email sẽ KHÔNG được gửi!');
       this.logger.error('❌ Vui lòng set BREVO_API_KEY trong environment variables');
     } else {
-      this.logger.log(`📧 Brevo API Key: ***${this.brevoApiKey.slice(-4)}`);
+      // Validate API key format (should start with xkeysib-)
+      if (!this.brevoApiKey.startsWith('xkeysib-')) {
+        this.logger.warn(`⚠️  BREVO_API_KEY có vẻ không đúng format (nên bắt đầu bằng 'xkeysib-')`);
+      }
+      this.logger.log(`📧 Brevo API Key: ***${this.brevoApiKey.slice(-4)} (length: ${this.brevoApiKey.length})`);
       this.logger.log(`📧 From: ${this.fromAddress}`);
       this.logger.log(`📧 From Name: ${this.fromName}`);
     }
@@ -159,6 +173,12 @@ export class MailService {
   }
 
   private async sendWithBrevo(to: string, subject: string, html: string): Promise<void> {
+    // Kiểm tra API key trước khi gửi
+    if (!this.brevoApiKey) {
+      this.logger.error('❌ BREVO_API_KEY chưa được cấu hình - không thể gửi email');
+      return;
+    }
+
     // Retry logic: thử gửi tối đa 3 lần
     let lastError: Error | null = null;
     const maxAttempts = 3;
@@ -189,19 +209,60 @@ export class MailService {
         return; // Thành công, thoát
       } catch (error: any) {
         lastError = error instanceof Error ? error : new Error(String(error));
-        const errorMessage = error?.response?.data || error.message;
+        
+        // Extract error message chi tiết từ Brevo response
+        let errorMessage = error.message;
+        let errorDetails = '';
+        
+        if (error.response) {
+          const status = error.response.status;
+          const statusText = error.response.statusText;
+          const data = error.response.data;
+          
+          errorMessage = `HTTP ${status} ${statusText}`;
+          
+          if (data) {
+            if (typeof data === 'string') {
+              errorDetails = data;
+            } else if (data.message) {
+              errorDetails = data.message;
+            } else if (data.error) {
+              errorDetails = typeof data.error === 'string' ? data.error : JSON.stringify(data.error);
+            } else {
+              errorDetails = JSON.stringify(data);
+            }
+          }
+          
+          // Log chi tiết cho 401 (Unauthorized)
+          if (status === 401) {
+            this.logger.error(`❌ Brevo API 401 Unauthorized - Kiểm tra lại BREVO_API_KEY`);
+            this.logger.error(`   - API Key length: ${this.brevoApiKey.length}`);
+            this.logger.error(`   - API Key starts with 'xkeysib-': ${this.brevoApiKey.startsWith('xkeysib-')}`);
+            this.logger.error(`   - Response: ${errorDetails || 'No details'}`);
+          }
+          
+          // Log chi tiết cho 403 (Forbidden - Account not activated)
+          if (status === 403) {
+            this.logger.error(`❌ Brevo API 403 Forbidden - Tài khoản Brevo chưa được kích hoạt!`);
+            this.logger.error(`   - Vào Brevo Dashboard để verify email và activate account`);
+            this.logger.error(`   - Hoặc liên hệ: contact@brevo.com`);
+            this.logger.error(`   - Response: ${errorDetails || 'No details'}`);
+          }
+        }
+        
+        const fullErrorMessage = errorDetails ? `${errorMessage}: ${errorDetails}` : errorMessage;
         
         if (attempt < maxAttempts) {
           // Exponential backoff: 2s, 4s
           const delayMs = Math.min(2000 * Math.pow(2, attempt - 1), 4000);
           this.logger.warn(
-            `⚠️  Gửi email qua Brevo thất bại (attempt ${attempt}/${maxAttempts}) đến ${to}: ${errorMessage}. Đang thử lại sau ${delayMs}ms...`,
+            `⚠️  Gửi email qua Brevo thất bại (attempt ${attempt}/${maxAttempts}) đến ${to}: ${fullErrorMessage}. Đang thử lại sau ${delayMs}ms...`,
           );
           await new Promise((resolve) => setTimeout(resolve, delayMs));
         } else {
           // Lần thử cuối cùng thất bại
           this.logger.error(
-            `❌ Gửi email qua Brevo thất bại đến ${to} sau ${maxAttempts} lần thử: ${errorMessage}`,
+            `❌ Gửi email qua Brevo thất bại đến ${to} sau ${maxAttempts} lần thử: ${fullErrorMessage}`,
           );
           if (lastError.stack) {
             this.logger.error(`Stack trace: ${lastError.stack}`);
