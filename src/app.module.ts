@@ -14,6 +14,7 @@ import { ContestProgressModule } from './contest-progress/contest-progress.modul
 import { SpeechModule } from './speech/speech.module';
 import { DailyTasksModule } from './daily-tasks/daily-tasks.module';
 import { NewsModule } from './news/news.module';
+import { PaymentModule } from './payment/payment.module';
 
 @Module({
   imports: [
@@ -34,6 +35,7 @@ import { NewsModule } from './news/news.module';
     SpeechModule,
     DailyTasksModule,
     NewsModule,
+    PaymentModule,
   ],
   controllers: [AppController],
   providers: [AppService],

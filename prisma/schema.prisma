@@ -37,30 +37,33 @@ model sentences {
 }
 
 model users {
-  user_id                      Int                       @id @default(autoincrement())
-  username                     String                    @unique
-  email                        String                    @unique
+  user_id                      Int                   @id @default(autoincrement())
+  username                     String                @unique
+  email                        String                @unique
   password_hash                String
-  created_at                   DateTime                  @default(now())
-  role                         Role                      @default(customer)
-  email_confirmed              Boolean                   @default(false)
+  created_at                   DateTime              @default(now())
+  role                         Role                  @default(customer)
+  email_confirmed              Boolean               @default(false)
   verification_code            String?
   verification_code_expires_at DateTime?
-  account_status               AccountStatus             @default(normal)
-  account_type                 AccountType               @default(local)
-  must_set_password            Boolean                   @default(false)
+  account_status               AccountStatus         @default(normal)
+  account_type                 AccountType           @default(local)
+  must_set_password            Boolean               @default(false)
   reset_code                   String?
   reset_code_expires_at        DateTime?
   image_url                    String?
   address                      String?
   province                     String?
   region                       Region?
-  xp                           Int                       @default(0)
-  streak_days                  Int                       @default(0)
+  xp                           Int                   @default(0)
+  streak_days                  Int                   @default(0)
+  vip_package_type             VipPackageType?
+  vip_expires_at               DateTime?
   daily_tasks                  daily_tasks[]
   daily_scores                 user_daily_scores[]
   monthly_scores               user_monthly_scores[]
   vocabulary_boxes             vocabulary_box?
+  payments                     payments[]
 
   @@map("users")
 }
@@ -162,15 +165,33 @@ model daily_tasks {
 }
 
 model news {
-  id          Int      @id @default(autoincrement())
-  title       String
-  content     String   @db.Text
-  start_date  DateTime @db.Date
-  end_date    DateTime @db.Date
-  created_at  DateTime @default(now())
-  updated_at  DateTime @default(now()) @updatedAt
+  id         Int      @id @default(autoincrement())
+  title      String
+  content    String   @db.Text
+  start_date DateTime @db.Date
+  end_date   DateTime @db.Date
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now()) @updatedAt
 
   @@map("news")
+}
+
+model payments {
+  payment_id       Int            @id @default(autoincrement())
+  user_id          Int // userID
+  order_code       BigInt         @unique // orderCode
+  amount           Int // tổng tiền
+  vip_package_type VipPackageType
+  status           PaymentStatus  @default(pending) // pending, cancel, paid
+  description      String?
+  checkout_url     String?
+  qr_code          String?        @db.Text
+  created_at       DateTime       @default(now())
+  updated_at       DateTime       @updatedAt
+  paid_at          DateTime?
+  user             users          @relation(fields: [user_id], references: [user_id], onDelete: Cascade)
+
+  @@map("payments")
 }
 
 enum Role {
@@ -192,4 +213,20 @@ enum Region {
   bac
   trung
   nam
+}
+
+enum VipPackageType {
+  lifetime
+  one_day
+  one_week
+  one_month
+  one_year
+}
+
+enum PaymentStatus {
+  pending
+  paid
+  cancelled
+  expired
+  cancel // Alias cho cancelled
 }
