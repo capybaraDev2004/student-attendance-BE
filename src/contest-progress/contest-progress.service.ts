@@ -134,12 +134,7 @@ export class ContestProgressService {
       orderBy: { score_date: 'desc' },
     });
 
-    // Debug: Log để kiểm tra
-    console.log(`[getAttendanceStreak] userId: ${userId}, today: ${today.toISOString().split('T')[0]}`);
-    console.log(`[getAttendanceStreak] All scores:`, allScores.map((s: any) => ({
-      date: s.score_date.toISOString().split('T')[0],
-      score: s.score
-    })));
+    // Debug log đã được xóa để tránh spam console
 
     if (allScores.length === 0) {
       return {

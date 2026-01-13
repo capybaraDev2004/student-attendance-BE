@@ -1,6 +1,7 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { PayOSService } from './payos.service';
+import { MailService } from '../mail/mail.service';
 import { VipPackageType } from '@prisma/client';
 import * as QRCode from 'qrcode';
 
@@ -10,16 +11,17 @@ export class PaymentService {
 
   // Giá các gói VIP (VND)
   private readonly VIP_PRICES: Record<VipPackageType, number> = {
-    one_day: 1000,
-    one_week: 1000,
-    one_month: 1000,
-    one_year: 1000,
+    one_day: 10000,
+    one_week: 50000,
+    one_month: 200000,
+    one_year: 500000,
     lifetime: 1000,
   };
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly payOSService: PayOSService,
+    private readonly mailService: MailService,
   ) {}
 
   async createPayment(userId: number, vipPackageType: VipPackageType) {
@@ -199,6 +201,15 @@ export class PaymentService {
 
       this.logger.log(
         `✅ Payment ${payment.payment_id} confirmed. User ${payment.user_id} upgraded to VIP ${payment.vip_package_type}, expires at: ${expiresAt}`,
+      );
+
+      // Gửi email cảm ơn khi thanh toán VIP thành công (chạy trong background)
+      this.mailService.sendVipThankYouEmailAsync(
+        payment.user.email,
+        payment.user.username,
+        payment.vip_package_type,
+        expiresAt,
+        payment.amount,
       );
 
       return { success: true, message: 'Payment processed successfully' };

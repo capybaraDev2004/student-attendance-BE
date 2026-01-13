@@ -16,12 +16,16 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { UsersService } from './users.service';
+import { VipExpirationService } from './vip-expiration.service';
 
 @Controller('admin/users')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('admin')
 export class AdminUsersController {
-  constructor(private readonly usersService: UsersService) {}
+  constructor(
+    private readonly usersService: UsersService,
+    private readonly vipExpirationService: VipExpirationService,
+  ) {}
 
   @Get()
   findAll() {
@@ -42,5 +46,15 @@ export class AdminUsersController {
   @Delete(':id')
   remove(@Param('id', ParseIntPipe) id: number) {
     return this.usersService.remove(id);
+  }
+
+  /**
+   * Endpoint để test thủ công việc kiểm tra và hạ VIP đã hết hạn
+   * GET /admin/users/check-expired-vip
+   */
+  @Get('check-expired-vip')
+  async checkExpiredVip() {
+    await this.vipExpirationService.checkAndExpireVip();
+    return { message: 'Đã kiểm tra và cập nhật VIP đã hết hạn' };
   }
 }

@@ -172,6 +172,118 @@ export class MailService {
     await this.sendWithBrevo(to, 'CapyChina - Đặt lại mật khẩu', html);
   }
 
+  // Gửi email cảm ơn khi thanh toán VIP thành công trong background (không block)
+  sendVipThankYouEmailAsync(
+    to: string,
+    username: string,
+    vipPackageType: string,
+    expiresAt: Date | null,
+    amount: number,
+  ): void {
+    // Chạy trong background, không await
+    this.sendVipThankYouEmail(to, username, vipPackageType, expiresAt, amount).catch((error) => {
+      this.logger.error(
+        `Background VIP thank you email send failed for ${to}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    });
+  }
+
+  async sendVipThankYouEmail(
+    to: string,
+    username: string,
+    vipPackageType: string,
+    expiresAt: Date | null,
+    amount: number,
+  ): Promise<void> {
+    // Map package type sang tên tiếng Việt
+    const packageNames: Record<string, string> = {
+      one_day: 'VIP 1 Ngày',
+      one_week: 'VIP 1 Tuần',
+      one_month: 'VIP 1 Tháng',
+      one_year: 'VIP 1 Năm',
+      lifetime: 'VIP Vĩnh viễn',
+    };
+
+    const packageName = packageNames[vipPackageType] || vipPackageType;
+    const formattedAmount = amount.toLocaleString('vi-VN');
+    const formattedExpiresAt = expiresAt
+      ? expiresAt.toLocaleDateString('vi-VN', {
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+        })
+      : 'Vĩnh viễn';
+
+    const html = `
+      <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background:#fef3c7;padding:24px 0;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">
+        <tr>
+          <td align="center">
+            <table role="presentation" width="560" style="background:#ffffff;border-radius:20px;box-shadow:0 15px 45px rgba(245,158,11,.2);overflow:hidden;">
+              <tr>
+                <td style="background:linear-gradient(120deg,#f59e0b,#fbbf24);padding:32px;color:#fff;text-align:center;">
+                  <div style="font-size:32px;font-weight:700;margin-bottom:8px;">🎉 CapyChina</div>
+                  <div style="font-size:16px;opacity:.95;">Cảm ơn bạn đã ủng hộ!</div>
+                </td>
+              </tr>
+              <tr>
+                <td style="padding:36px 40px;color:#111827;">
+                  <h2 style="margin:0;font-size:20px;color:#0f172a;">Xin chào ${username}!</h2>
+                  <p style="margin:12px 0 24px;font-size:15px;line-height:1.7;">
+                    Cảm ơn bạn đã tin tưởng và ủng hộ CapyChina! Chúng tôi rất vui mừng thông báo rằng giao dịch thanh toán gói VIP của bạn đã được xác nhận thành công.
+                  </p>
+                  
+                  <div style="background:linear-gradient(135deg,#fef3c7,#fde68a);border-radius:16px;padding:24px;margin-bottom:24px;border:2px solid #fbbf24;">
+                    <div style="text-align:center;margin-bottom:16px;">
+                      <div style="font-size:14px;color:#92400e;text-transform:uppercase;letter-spacing:.1em;font-weight:600;">Gói VIP đã mua</div>
+                      <div style="font-size:28px;font-weight:700;color:#78350f;margin-top:8px;">${packageName}</div>
+                    </div>
+                    <div style="border-top:1px solid #fbbf24;padding-top:16px;margin-top:16px;">
+                      <table width="100%" cellspacing="0" cellpadding="0">
+                        <tr>
+                          <td style="padding:8px 0;color:#78350f;font-size:14px;font-weight:600;">Số tiền thanh toán:</td>
+                          <td style="text-align:right;padding:8px 0;color:#78350f;font-size:14px;font-weight:700;">${formattedAmount} VND</td>
+                        </tr>
+                        <tr>
+                          <td style="padding:8px 0;color:#78350f;font-size:14px;font-weight:600;">Hạn sử dụng:</td>
+                          <td style="text-align:right;padding:8px 0;color:#78350f;font-size:14px;font-weight:700;">${formattedExpiresAt}</td>
+                        </tr>
+                      </table>
+                    </div>
+                  </div>
+
+                  <div style="background:#f0fdfa;border-radius:12px;padding:20px;margin-bottom:24px;">
+                    <h3 style="margin:0 0 12px;font-size:16px;color:#0f766e;">✨ Quyền lợi VIP của bạn:</h3>
+                    <ul style="margin:0;padding-left:20px;color:#065f46;font-size:14px;line-height:1.8;">
+                      <li>Truy cập đầy đủ tất cả các tính năng học tập</li>
+                      <li>Không giới hạn bài học và từ vựng</li>
+                      <li>Ưu tiên hỗ trợ từ đội ngũ CapyChina</li>
+                      <li>Trải nghiệm học tập tốt nhất không quảng cáo</li>
+                    </ul>
+                  </div>
+
+                  <p style="margin:24px 0;font-size:14px;color:#475467;line-height:1.7;">
+                    Bạn có thể bắt đầu sử dụng ngay các tính năng VIP. Nếu có bất kỳ câu hỏi nào, đừng ngần ngại liên hệ với chúng tôi.
+                  </p>
+                  
+                  <p style="margin:0;font-size:14px;color:#0f172a;">
+                    Trân trọng cảm ơn,<br/>
+                    <strong>Đội ngũ CapyChina</strong>
+                  </p>
+                </td>
+              </tr>
+            </table>
+            <p style="color:#94a3b8;font-size:12px;margin-top:24px;">© ${new Date().getFullYear()} CapyChina. All rights reserved.</p>
+          </td>
+        </tr>
+      </table>
+    `;
+
+    // Gửi email bằng Brevo API
+    await this.sendWithBrevo(to, 'CapyChina - Cảm ơn bạn đã mua gói VIP! 🎉', html);
+  }
+
   private async sendWithBrevo(to: string, subject: string, html: string): Promise<void> {
     // Kiểm tra API key trước khi gửi
     if (!this.brevoApiKey) {
