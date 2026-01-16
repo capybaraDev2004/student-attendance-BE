@@ -60,4 +60,30 @@ export class PaymentController {
       amount: payment.amount,
     };
   }
+
+  @Post('cancel/:orderCode')
+  @UseGuards(JwtAuthGuard)
+  async cancelPayment(
+    @CurrentUser() user: any,
+    @Param('orderCode') orderCode: string,
+  ) {
+    const userId = user?.user_id;
+    if (!userId) {
+      throw new UnauthorizedException('Không xác định được người dùng');
+    }
+
+    const payment = await this.paymentService.getPaymentByOrderCode(
+      BigInt(orderCode),
+    );
+
+    if (!payment) {
+      return { success: false, message: 'Payment không tồn tại' };
+    }
+
+    if (payment.user_id !== userId) {
+      throw new UnauthorizedException('Không có quyền hủy payment này');
+    }
+
+    return this.paymentService.cancelPayment(payment.payment_id);
+  }
 }

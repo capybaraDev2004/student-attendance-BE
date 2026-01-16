@@ -18,6 +18,15 @@ export class PaymentService {
     lifetime: 1000,
   };
 
+  // Mô tả ngắn gọn gửi sang PayOS (tối đa 25 ký tự)
+  private readonly VIP_DESCRIPTIONS: Record<VipPackageType, string> = {
+    one_day: 'VIP-1D',
+    one_week: 'VIP-1W',
+    one_month: 'VIP-1M',
+    one_year: 'VIP-1Y',
+    lifetime: 'VIP-LIFE',
+  };
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly payOSService: PayOSService,
@@ -30,6 +39,8 @@ export class PaymentService {
       throw new Error(`Invalid VIP package type: ${vipPackageType}`);
     }
 
+    const description = this.VIP_DESCRIPTIONS[vipPackageType] || 'VIP';
+
     // Tạo order code unique (timestamp + random)
     const orderCode = Date.now() + Math.floor(Math.random() * 1000);
 
@@ -41,7 +52,7 @@ export class PaymentService {
         amount,
         vip_package_type: vipPackageType,
         status: 'pending',
-        description: `Thanh toán gói VIP ${vipPackageType}`,
+        description,
       },
     });
 
@@ -52,7 +63,7 @@ export class PaymentService {
     const paymentLink = await payOS.paymentRequests.create({
       orderCode: Number(orderCode),
       amount,
-      description: `Thanh toán gói VIP ${vipPackageType}`,
+      description,
       returnUrl: `${frontendUrl}/payment/success`,
       cancelUrl: `${frontendUrl}/payment/cancel`,
     });
@@ -296,5 +307,36 @@ export class PaymentService {
       where: { order_code: orderCode },
       include: { user: true },
     });
+  }
+
+  async cancelPayment(paymentId: number) {
+    const payment = await this.prisma.payments.findUnique({
+      where: { payment_id: paymentId },
+    });
+
+    if (!payment) {
+      throw new NotFoundException('Payment không tồn tại');
+    }
+
+    if (payment.status === 'paid') {
+      this.logger.warn(`Không thể hủy payment ${payment.payment_id} vì đã thanh toán`);
+      return { success: false, message: 'Payment đã được thanh toán, không thể hủy' };
+    }
+
+    if (payment.status === 'cancelled' || payment.status === 'cancel') {
+      this.logger.log(`Payment ${payment.payment_id} đã ở trạng thái cancelled`);
+      return { success: true, message: 'Payment đã được hủy trước đó' };
+    }
+
+    await this.prisma.payments.update({
+      where: { payment_id: paymentId },
+      data: {
+        status: 'cancelled',
+        updated_at: new Date(),
+      },
+    });
+
+    this.logger.log(`Payment ${paymentId} được hủy thủ công từ API`);
+    return { success: true, message: 'Payment đã được hủy thành công' };
   }
 }
