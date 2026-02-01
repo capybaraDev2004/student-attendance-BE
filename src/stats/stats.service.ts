@@ -7,14 +7,98 @@ export class StatsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async overview() {
-    const [users, vocabulary, sentences, flashcards, news] = await Promise.all([
+    const [
+      users,
+      vocabulary,
+      sentences,
+      flashcards,
+      news,
+      payments,
+      vocabularyCategories,
+      sentenceCategories,
+    ] = await Promise.all([
       this.prisma.users.count(),
       this.prisma.vocabulary.count(),
       this.prisma.sentences.count(),
       this.prisma.flashcards.count(),
-      (this.prisma as any).news.count(),
+      this.prisma.news.count(),
+      this.prisma.payments.count(),
+      this.prisma.vocabulary_categories.count(),
+      this.prisma.sentence_categories.count(),
     ]);
-    return { users, vocabulary, sentences, flashcards, news };
+    return {
+      users,
+      vocabulary,
+      sentences,
+      flashcards,
+      news,
+      payments,
+      vocabularyCategories,
+      sentenceCategories,
+    };
+  }
+
+  /** Thống kê giao dịch cho biểu đồ */
+  async paymentsChart() {
+    const [byStatus, byVipPackage, byMonthRows] = await Promise.all([
+      this.prisma.payments.groupBy({
+        by: ['status'],
+        _count: { payment_id: true },
+        _sum: { amount: true },
+      }),
+      this.prisma.payments.groupBy({
+        by: ['vip_package_type'],
+        _count: { payment_id: true },
+        _sum: { amount: true },
+      }),
+      this.prisma.$queryRaw<
+        { month: string; count: bigint; total: bigint }[]
+      >`
+        SELECT
+          to_char(created_at, 'YYYY-MM') as month,
+          count(*)::int as count,
+          coalesce(sum(amount), 0)::bigint as total
+        FROM payments
+        WHERE created_at >= (current_date - interval '12 months')
+        GROUP BY to_char(created_at, 'YYYY-MM')
+        ORDER BY month ASC
+      `,
+    ]);
+
+    const statusLabel: Record<string, string> = {
+      pending: 'Chờ xử lý',
+      paid: 'Đã thanh toán',
+      cancelled: 'Đã hủy',
+      cancel: 'Đã hủy',
+      expired: 'Hết hạn',
+    };
+    const vipLabel: Record<string, string> = {
+      one_day: '1 Ngày',
+      one_week: '1 Tuần',
+      one_month: '1 Tháng',
+      one_year: '1 Năm',
+      lifetime: 'Vĩnh viễn',
+    };
+
+    return {
+      byStatus: byStatus.map((s) => ({
+        status: s.status,
+        label: statusLabel[s.status] ?? s.status,
+        count: s._count.payment_id,
+        amount: Number(s._sum.amount ?? 0),
+      })),
+      byVipPackage: byVipPackage.map((v) => ({
+        package: v.vip_package_type,
+        label: vipLabel[v.vip_package_type] ?? v.vip_package_type,
+        count: v._count.payment_id,
+        amount: Number(v._sum.amount ?? 0),
+      })),
+      byMonth: byMonthRows.map((r) => ({
+        month: r.month,
+        count: Number(r.count ?? 0),
+        amount: Number(r.total ?? 0),
+      })),
+    };
   }
 
   async leaderboard(

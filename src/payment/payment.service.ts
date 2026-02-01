@@ -1,9 +1,17 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import * as path from 'path';
 import { PrismaService } from '../prisma/prisma.service';
 import { PayOSService } from './payos.service';
 import { MailService } from '../mail/mail.service';
-import { VipPackageType } from '@prisma/client';
+import { PaymentStatus, VipPackageType } from '@prisma/client';
 import * as QRCode from 'qrcode';
+import * as XLSX from 'xlsx';
+import PDFDocument from 'pdfkit';
+import { UpdatePaymentDto } from './dto/update-payment.dto';
+
+const FONT_BASE = path.join(process.cwd(), 'node_modules', 'dejavu-fonts-ttf', 'ttf');
+const FONT_SERIF = path.join(FONT_BASE, 'DejaVuSerif.ttf');
+const FONT_SERIF_BOLD = path.join(FONT_BASE, 'DejaVuSerif-Bold.ttf');
 
 @Injectable()
 export class PaymentService {
@@ -338,5 +346,355 @@ export class PaymentService {
 
     this.logger.log(`Payment ${paymentId} được hủy thủ công từ API`);
     return { success: true, message: 'Payment đã được hủy thành công' };
+  }
+
+  /** Chuyển payment sang dạng JSON-safe (BigInt order_code -> string) */
+  private serializePaymentForJson<T extends { order_code: bigint }>(p: T): Omit<T, 'order_code'> & { order_code: string } {
+    return { ...p, order_code: String(p.order_code) } as Omit<T, 'order_code'> & { order_code: string };
+  }
+
+  /** Danh sách giao dịch cho admin (có thông tin user) */
+  async findAllForAdmin() {
+    const list = await this.prisma.payments.findMany({
+      include: {
+        user: {
+          select: {
+            user_id: true,
+            username: true,
+            email: true,
+          },
+        },
+      },
+      orderBy: { created_at: 'desc' },
+    });
+    return list.map((p) => this.serializePaymentForJson(p));
+  }
+
+  /** Danh sách giao dịch đã lọc theo status, year, month (cho báo cáo) */
+  async getFilteredForAdmin(filters: { status?: string; year?: number; month?: number }) {
+    const where: Record<string, unknown> = {};
+    if (filters.status && filters.status !== 'all') {
+      where.status =
+        filters.status === 'cancelled' ? { in: ['cancelled', 'cancel'] } : filters.status;
+    }
+    if (filters.year != null && filters.month != null) {
+      where.created_at = {
+        gte: new Date(filters.year, filters.month - 1, 1),
+        lt: new Date(filters.year, filters.month, 1),
+      };
+    } else if (filters.year != null) {
+      where.created_at = {
+        gte: new Date(filters.year, 0, 1),
+        lt: new Date(filters.year + 1, 0, 1),
+      };
+    }
+    const list = await this.prisma.payments.findMany({
+      where: Object.keys(where).length ? where : undefined,
+      include: {
+        user: {
+          select: {
+            user_id: true,
+            username: true,
+            email: true,
+          },
+        },
+      },
+      orderBy: { created_at: 'desc' },
+    });
+    let result = list.map((p) => this.serializePaymentForJson(p));
+    if (filters.month != null && filters.year == null) {
+      result = result.filter((p) => new Date(p.created_at).getMonth() + 1 === filters.month);
+    }
+    return result;
+  }
+
+  /** Cập nhật giao dịch (admin) */
+  async updatePaymentAdmin(paymentId: number, dto: UpdatePaymentDto) {
+    const payment = await this.prisma.payments.findUnique({
+      where: { payment_id: paymentId },
+    });
+    if (!payment) {
+      throw new NotFoundException('Giao dịch không tồn tại');
+    }
+    const updated = await this.prisma.payments.update({
+      where: { payment_id: paymentId },
+      data: {
+        ...(dto.status != null && { status: dto.status }),
+        ...(dto.description != null && { description: dto.description }),
+        updated_at: new Date(),
+      },
+      include: {
+        user: {
+          select: {
+            user_id: true,
+            username: true,
+            email: true,
+          },
+        },
+      },
+    });
+    return this.serializePaymentForJson(updated);
+  }
+
+  /** Xuất báo cáo PDF (buffer) — theo dữ liệu đã lọc nếu có filter */
+  async exportPdf(filters?: { status?: string; year?: number; month?: number }): Promise<Buffer> {
+    const hasFilter =
+      filters &&
+      (filters.status != null || filters.year != null || filters.month != null);
+    const rows = hasFilter
+      ? await this.getFilteredForAdmin(filters!)
+      : await this.findAllForAdmin();
+    const doc = new PDFDocument({ margin: 40, size: 'A4' });
+    const chunks: Buffer[] = [];
+    doc.on('data', (chunk: Buffer) => chunks.push(chunk));
+    const bufferPromise = new Promise<Buffer>((resolve, reject) => {
+      doc.on('end', () => resolve(Buffer.concat(chunks)));
+      doc.on('error', reject);
+    });
+
+    // Font hỗ trợ tiếng Việt (Unicode)
+    doc.registerFont('DejaVuSerif', FONT_SERIF);
+    doc.registerFont('DejaVuSerifBold', FONT_SERIF_BOLD);
+    const statusLabelForFilter: Record<string, string> = {
+      pending: 'Chờ xử lý',
+      paid: 'Đã thanh toán',
+      cancelled: 'Đã hủy',
+      cancel: 'Đã hủy',
+      expired: 'Hết hạn',
+    };
+    const filterParts: string[] = [];
+    if (filters?.status) filterParts.push(`Trạng thái: ${statusLabelForFilter[filters.status] ?? filters.status}`);
+    if (filters?.year) filterParts.push(`Năm: ${filters.year}`);
+    if (filters?.month) filterParts.push(`Tháng: ${filters.month}`);
+    const filterLabel = filterParts.length > 0 ? filterParts.join(' | ') : 'Toàn bộ dữ liệu';
+
+    doc.font('DejaVuSerif');
+    doc.fontSize(18).text('BÁO CÁO GIAO DỊCH THANH TOÁN', { align: 'center' });
+    doc.moveDown(0.5);
+    doc.fontSize(10).text(`Ngày xuất: ${new Date().toLocaleString('vi-VN')}`, { align: 'center' });
+    doc.moveDown(0.3);
+    doc.fontSize(9).text(`Xuất theo bộ lọc: ${filterLabel}`, { align: 'center' });
+    doc.moveDown(1);
+
+    const headers = ['STT', 'Mã GD', 'Mã đơn', 'Người dùng', 'Email', 'Gói VIP', 'Số tiền (VNĐ)', 'Trạng thái', 'Ngày tạo'];
+    const colWidths = [28, 38, 58, 70, 95, 52, 58, 42, 55];
+    const startY = doc.y;
+    let y = startY;
+    const rowHeight = 28;
+    const tableTop = y;
+
+    const tableWidth = colWidths.reduce((a, b) => a + b, 0) + 4 * (headers.length - 1);
+    const tableLeft = 40;
+    const cellVerticalOffset = (rowHeight - 10) / 2;
+
+    // Viền trên bảng + hàng tiêu đề (không dùng rect, vẽ từng cạnh)
+    doc.moveTo(tableLeft, tableTop).lineTo(tableLeft + tableWidth, tableTop).stroke();
+    doc.fontSize(9).font('DejaVuSerifBold');
+    let x = tableLeft;
+    headers.forEach((h, i) => {
+      doc.text(h, x, y + cellVerticalOffset, { width: colWidths[i], align: i === 3 || i === 4 ? 'left' : 'center' });
+      x += colWidths[i] + 4;
+    });
+    y += rowHeight;
+    doc.moveTo(tableLeft, y).lineTo(tableLeft + tableWidth, y).stroke();
+    doc.font('DejaVuSerif');
+
+    const statusLabel: Record<string, string> = {
+      pending: 'Chờ xử lý',
+      paid: 'Đã thanh toán',
+      cancelled: 'Đã hủy',
+      cancel: 'Đã hủy',
+      expired: 'Hết hạn',
+    };
+    const totalsByStatusPdf: Record<string, { count: number; amount: number }> = {
+      pending: { count: 0, amount: 0 },
+      paid: { count: 0, amount: 0 },
+      cancelled: { count: 0, amount: 0 },
+      expired: { count: 0, amount: 0 },
+    };
+    rows.forEach((p) => {
+      const key = p.status === 'cancel' ? 'cancelled' : p.status;
+      if (totalsByStatusPdf[key]) {
+        totalsByStatusPdf[key].count += 1;
+        totalsByStatusPdf[key].amount += p.amount;
+      }
+    });
+    const vipLabel: Record<string, string> = {
+      one_day: '1 Ngày',
+      one_week: '1 Tuần',
+      one_month: '1 Tháng',
+      one_year: '1 Năm',
+      lifetime: 'Vĩnh viễn',
+    };
+
+    rows.forEach((p, idx) => {
+      if (y > 700) {
+        doc.addPage();
+        y = 40;
+        doc.moveTo(tableLeft, y).lineTo(tableLeft + tableWidth, y).stroke();
+        doc.font('DejaVuSerifBold').fontSize(9);
+        x = tableLeft;
+        headers.forEach((h, i) => {
+          doc.text(h, x, y + cellVerticalOffset, { width: colWidths[i], align: i === 3 || i === 4 ? 'left' : 'center' });
+          x += colWidths[i] + 4;
+        });
+        y += rowHeight;
+        doc.moveTo(tableLeft, y).lineTo(tableLeft + tableWidth, y).stroke();
+        doc.font('DejaVuSerif');
+      }
+      const user = p.user as { username?: string; email?: string };
+      const cells = [
+        String(idx + 1),
+        String(p.payment_id),
+        String(p.order_code),
+        (user?.username ?? '—').slice(0, 12),
+        (user?.email ?? '—').slice(0, 18),
+        vipLabel[p.vip_package_type] ?? p.vip_package_type,
+        p.amount.toLocaleString('vi-VN'),
+        statusLabel[p.status] ?? p.status,
+        new Date(p.created_at).toLocaleString('vi-VN', { dateStyle: 'short', timeStyle: 'short' }),
+      ];
+      x = tableLeft;
+      doc.fontSize(8);
+      cells.forEach((cell, i) => {
+        doc.text(cell, x, y + cellVerticalOffset, { width: colWidths[i], align: i === 3 || i === 4 ? 'left' : 'center' });
+        x += colWidths[i] + 4;
+      });
+      y += rowHeight;
+      doc.moveTo(tableLeft, y).lineTo(tableLeft + tableWidth, y).stroke();
+    });
+
+    // Viền dọc: trái, giữa các cột, phải (lưới rõ ràng)
+    for (let i = 0; i <= headers.length; i++) {
+      const colX = tableLeft + colWidths.slice(0, i).reduce((a, b) => a + b, 0) + 4 * i;
+      doc.moveTo(colX, tableTop).lineTo(colX, y).stroke();
+    }
+    doc.moveDown(0.5);
+    doc.font('DejaVuSerif').fontSize(10);
+    doc.text(`Tổng số giao dịch: ${rows.length}`, tableLeft, doc.y);
+    doc.moveDown(0.5);
+    doc.font('DejaVuSerifBold').fontSize(10).text('Tổng theo trạng thái:', tableLeft, doc.y);
+    doc.font('DejaVuSerif').fontSize(9);
+    const summaryOrder = [
+      { key: 'pending', label: 'Chờ xử lý' },
+      { key: 'paid', label: 'Đã thanh toán' },
+      { key: 'cancelled', label: 'Đã hủy' },
+      { key: 'expired', label: 'Hết hạn' },
+    ];
+    summaryOrder.forEach(({ key, label }) => {
+      const t = totalsByStatusPdf[key];
+      if (t) {
+        doc.moveDown(0.2);
+        doc.text(
+          `  ${label}: ${t.count} giao dịch — ${t.amount.toLocaleString('vi-VN')} VNĐ`,
+          tableLeft,
+          doc.y,
+        );
+      }
+    });
+    doc.moveDown(0.5);
+    doc.fontSize(9).text(
+      `Báo cáo được xuất lúc ${new Date().toLocaleString('vi-VN')} — CapyChina Admin`,
+      { align: 'center' },
+    );
+
+    doc.end();
+    return bufferPromise;
+  }
+
+  /** Xuất báo cáo Excel (buffer) — theo dữ liệu đã lọc nếu có filter */
+  async exportExcel(filters?: { status?: string; year?: number; month?: number }): Promise<Buffer> {
+    const hasFilter =
+      filters &&
+      (filters.status != null || filters.year != null || filters.month != null);
+    const rows = hasFilter
+      ? await this.getFilteredForAdmin(filters!)
+      : await this.findAllForAdmin();
+    const statusLabel: Record<string, string> = {
+      pending: 'Chờ xử lý',
+      paid: 'Đã thanh toán',
+      cancelled: 'Đã hủy',
+      cancel: 'Đã hủy',
+      expired: 'Hết hạn',
+    };
+    const vipLabel: Record<string, string> = {
+      one_day: '1 Ngày',
+      one_week: '1 Tuần',
+      one_month: '1 Tháng',
+      one_year: '1 Năm',
+      lifetime: 'Vĩnh viễn',
+    };
+
+    const totalsByStatus: Record<string, { count: number; amount: number }> = {
+      pending: { count: 0, amount: 0 },
+      paid: { count: 0, amount: 0 },
+      cancelled: { count: 0, amount: 0 },
+      expired: { count: 0, amount: 0 },
+    };
+    rows.forEach((p) => {
+      const key = p.status === 'cancel' ? 'cancelled' : p.status;
+      if (totalsByStatus[key]) {
+        totalsByStatus[key].count += 1;
+        totalsByStatus[key].amount += p.amount;
+      }
+    });
+
+    const filterPartsExcel: string[] = [];
+    if (filters?.status) filterPartsExcel.push(`Trạng thái: ${statusLabel[filters.status] ?? filters.status}`);
+    if (filters?.year) filterPartsExcel.push(`Năm: ${filters.year}`);
+    if (filters?.month) filterPartsExcel.push(`Tháng: ${filters.month}`);
+    const filterLabelExcel = filterPartsExcel.length > 0 ? filterPartsExcel.join(' | ') : 'Toàn bộ dữ liệu';
+
+    const summaryOrder = [
+      { key: 'pending', label: 'Chờ xử lý' },
+      { key: 'paid', label: 'Đã thanh toán' },
+      { key: 'cancelled', label: 'Đã hủy' },
+      { key: 'expired', label: 'Hết hạn' },
+    ];
+    const summaryRows = [
+      [],
+      ['TỔNG THEO TRẠNG THÁI'],
+      ['Trạng thái', 'Số giao dịch', 'Tổng tiền (VNĐ)'],
+      ...summaryOrder.map(({ key, label }) => {
+        const t = totalsByStatus[key];
+        return [label, t?.count ?? 0, t?.amount ?? 0];
+      }),
+    ];
+
+    const data = [
+      ['BÁO CÁO GIAO DỊCH THANH TOÁN'],
+      [`Ngày xuất: ${new Date().toLocaleString('vi-VN')}`],
+      [`Xuất theo bộ lọc: ${filterLabelExcel}`],
+      [],
+      ['STT', 'Mã giao dịch', 'Mã đơn hàng', 'Người dùng', 'Email', 'Gói VIP', 'Số tiền (VNĐ)', 'Trạng thái', 'Ngày tạo', 'Ngày thanh toán'],
+      ...rows.map((p, idx) => {
+        const user = p.user as { username?: string; email?: string };
+        return [
+          idx + 1,
+          p.payment_id,
+          String(p.order_code),
+          user?.username ?? '—',
+          user?.email ?? '—',
+          vipLabel[p.vip_package_type] ?? p.vip_package_type,
+          p.amount,
+          statusLabel[p.status] ?? p.status,
+          new Date(p.created_at).toLocaleString('vi-VN'),
+          p.paid_at ? new Date(p.paid_at).toLocaleString('vi-VN') : '—',
+        ];
+      }),
+      ...summaryRows,
+    ];
+
+    const ws = XLSX.utils.aoa_to_sheet(data);
+    const colWidths = [{ wch: 5 }, { wch: 12 }, { wch: 14 }, { wch: 18 }, { wch: 24 }, { wch: 12 }, { wch: 14 }, { wch: 14 }, { wch: 18 }, { wch: 18 }];
+    ws['!cols'] = colWidths;
+    ws['!merges'] = [
+      { s: { r: 0, c: 0 }, e: { r: 0, c: 9 } },
+      { s: { r: 1, c: 0 }, e: { r: 1, c: 9 } },
+      { s: { r: 2, c: 0 }, e: { r: 2, c: 9 } },
+    ];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Giao dịch');
+    return Buffer.from(XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }));
   }
 }

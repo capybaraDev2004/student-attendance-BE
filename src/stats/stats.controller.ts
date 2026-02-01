@@ -15,4 +15,9 @@ export class StatsController {
   overview() {
     return this.statsService.overview();
   }
+
+  @Get('payments-chart')
+  paymentsChart() {
+    return this.statsService.paymentsChart();
+  }
 }
