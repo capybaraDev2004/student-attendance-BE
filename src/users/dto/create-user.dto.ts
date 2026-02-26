@@ -23,6 +23,7 @@ export enum AccountStatus {
 export enum AccountType {
   LOCAL = 'local',
   GOOGLE = 'google',
+  FACEBOOK = 'facebook',
 }
 
 export enum Region {

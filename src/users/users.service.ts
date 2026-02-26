@@ -101,10 +101,10 @@ export class UsersService {
             : undefined,
           account_status: dto.account_status ?? AccountStatus.NORMAL,
           account_type: dto.account_type ?? AccountType.LOCAL,
-        must_set_password:
-          (dto.account_type ?? AccountType.LOCAL) === AccountType.GOOGLE
-            ? dto.must_set_password ?? true
-            : dto.must_set_password ?? false,
+          must_set_password:
+            (dto.account_type ?? AccountType.LOCAL) === AccountType.LOCAL
+              ? dto.must_set_password ?? false
+              : dto.must_set_password ?? true,
         image_url: dto.image_url,
         address: dto.address,
         province: dto.province,
@@ -210,7 +210,17 @@ export class UsersService {
   }
 
   async remove(userId: number) {
-    await this.ensureExists(userId);
+    const user = await this.ensureExists(userId);
+
+    await this.prisma.data_deletion_requests.create({
+      data: {
+        user_id: user.user_id,
+        email: user.email,
+        source: 'admin',
+        note: 'Xóa tài khoản và toàn bộ dữ liệu liên quan từ trang quản trị',
+      },
+    });
+
     await this.prisma.users.delete({ where: { user_id: userId } });
     return { message: 'Đã xóa người dùng thành công' };
   }
@@ -273,12 +283,13 @@ export class UsersService {
   }
 
   private async ensureExists(userId: number) {
-    const exists = await this.prisma.users.findUnique({
+    const user = await this.prisma.users.findUnique({
       where: { user_id: userId },
     });
-    if (!exists) {
+    if (!user) {
       throw new NotFoundException('Không tìm thấy người dùng');
     }
+    return user;
   }
 
   async saveVerificationCode(

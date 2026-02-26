@@ -12,6 +12,7 @@ import { AuthService } from './auth.service';
 import { VerifyEmailDto } from './dto/verify-email.dto';
 import { ResendVerificationDto } from './dto/resend-verification.dto';
 import { GoogleAuthDto } from './dto/google-auth.dto';
+import { FacebookAuthDto } from './dto/facebook-auth.dto';
 import { SetPasswordDto } from './dto/set-password.dto';
 
 @Controller('auth')
@@ -59,6 +60,11 @@ export class AuthController {
   @Post('google')
   googleLogin(@Body() dto: GoogleAuthDto) {
     return this.authService.handleGoogleAuth(dto);
+  }
+
+  @Post('facebook')
+  facebookLogin(@Body() dto: FacebookAuthDto) {
+    return this.authService.handleFacebookAuth(dto);
   }
 
   @Post('refresh')

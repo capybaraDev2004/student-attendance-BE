@@ -86,7 +86,7 @@ model vocabulary_box {
   user_id    Int                   @unique
   created_at DateTime              @default(now())
   updated_at DateTime              @updatedAt
-  user       users                 @relation(fields: [user_id], references: [user_id])
+  user       users                 @relation(fields: [user_id], references: [user_id], onDelete: Cascade)
   items      vocabulary_box_item[]
 
   @@map("vocabulary_box")
@@ -194,6 +194,18 @@ model payments {
   @@map("payments")
 }
 
+model data_deletion_requests {
+  id           Int      @id @default(autoincrement())
+  user_id      Int
+  email        String
+  source       String   @default("admin")
+  note         String?
+  requested_at DateTime @default(now())
+  completed_at DateTime?
+
+  @@map("data_deletion_requests")
+}
+
 enum Role {
   admin
   customer
@@ -207,6 +219,7 @@ enum AccountStatus {
 enum AccountType {
   local
   google
+  facebook
 }
 
 enum Region {
