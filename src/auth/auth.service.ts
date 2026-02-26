@@ -18,6 +18,7 @@ import { RegisterDto } from './dto/register.dto';
 import { VerifyEmailDto } from './dto/verify-email.dto';
 import { ResendVerificationDto } from './dto/resend-verification.dto';
 import { GoogleAuthDto } from './dto/google-auth.dto';
+import { FacebookAuthDto } from './dto/facebook-auth.dto';
 import { SetPasswordDto } from './dto/set-password.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
@@ -250,6 +251,46 @@ export class AuthService {
     if (!user) {
       throw new NotFoundException(
         'Không thể khởi tạo tài khoản Google. Vui lòng thử lại.',
+      );
+    }
+
+    const tokens = await this.buildTokens({
+      sub: user.user_id,
+      email: user.email,
+      role: user.role,
+    });
+
+    return {
+      user: this.mapUser(user),
+      tokens,
+    };
+  }
+
+  async handleFacebookAuth(dto: FacebookAuthDto) {
+    const normalizedEmail = dto.email?.toLowerCase() ?? `${dto.providerId}@facebook.local`;
+    let user = await this.usersService.findByEmail(normalizedEmail);
+
+    if (!user) {
+      await this.usersService.create({
+        username: dto.name ?? normalizedEmail.split('@')[0],
+        email: normalizedEmail,
+        password: this.generateTemporaryPassword(),
+        account_type: AccountType.FACEBOOK,
+        email_confirmed: true,
+        must_set_password: true,
+      });
+      user = await this.usersService.findByEmail(normalizedEmail);
+    } else {
+      if (!user.email_confirmed) {
+        await this.usersService.confirmEmail(user.user_id);
+      }
+
+      user = await this.usersService.findByEmail(normalizedEmail);
+    }
+
+    if (!user) {
+      throw new NotFoundException(
+        'Không thể khởi tạo tài khoản Facebook. Vui lòng thử lại.',
       );
     }
 

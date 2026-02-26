@@ -101,10 +101,10 @@ export class UsersService {
             : undefined,
           account_status: dto.account_status ?? AccountStatus.NORMAL,
           account_type: dto.account_type ?? AccountType.LOCAL,
-        must_set_password:
-          (dto.account_type ?? AccountType.LOCAL) === AccountType.GOOGLE
-            ? dto.must_set_password ?? true
-            : dto.must_set_password ?? false,
+          must_set_password:
+            (dto.account_type ?? AccountType.LOCAL) === AccountType.LOCAL
+              ? dto.must_set_password ?? false
+              : dto.must_set_password ?? true,
         image_url: dto.image_url,
         address: dto.address,
         province: dto.province,
